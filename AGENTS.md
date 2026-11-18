@@ -44,7 +44,7 @@ flowchart TD
 - `ci.yml` — Test (simulator) + Build unsigned IPA + upload artifacts. On push/PR to `main`. Calls `codebase/scripts/build_unsigned_ipa.sh`.
 - `release.yml` — Create GitHub Release on `v*` semver tags; attach `.ipa` + `.dSYM` + `manifest.json`; then triggers `pages.yml`.
 - `pages.yml` — Stage `codebase/site/`, regenerate `apps.json`, deploy via `actions/deploy-pages`.
-- `codeql.yml` (Swift; `config-mode: manual` — runs the unsigned build first so CodeQL can instrument compile), `health.yml` (daily cron build on `main`), `.github/dependabot.yml` (`swift` + `github-actions`, weekly).
+- `codeql.yml` (Swift; `build-mode: manual` — runs the unsigned build first so CodeQL can instrument compile), `health.yml` (daily cron build on `main`), `.github/dependabot.yml` (`swift` + `github-actions`, weekly).
 
 ## Build & package (`codebase/scripts/build_unsigned_ipa.sh`)
 

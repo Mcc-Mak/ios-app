@@ -44,7 +44,7 @@ CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN
 
 - **檔案**：`../.github/workflows/codeql.yml`
 - **觸發**：`push` / `pull_request` 到 `main`；每週排程。
-- **步驟**：`config-mode: manual`、語言 Swift；**先執行未簽署建置讓 CodeQL 能儀器化編譯**，再進行分析。
+- **步驟**：`build-mode: manual`、語言 Swift；**先執行未簽署建置讓 CodeQL 能儀器化編譯**，再進行分析。
 
 ## health.yml — 每日健康檢查
 

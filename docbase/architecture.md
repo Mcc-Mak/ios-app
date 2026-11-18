@@ -52,7 +52,7 @@ sequenceDiagram
 | CI workflow | `../.github/workflows/ci.yml` | 模擬器測試（未簽署、`-enableCodeCoverage YES`）+ 建置 IPA + 上傳成品。 |
 | 發行 workflow | `../.github/workflows/release.yml` | `v*` tag 觸發；建置、`gh release create --generate-notes`、上傳資產、觸發 pages.yml。 |
 | Pages workflow | `../.github/workflows/pages.yml` | 暫存站台、產生 `apps.json`、`upload-pages-artifact` + `deploy-pages`。 |
-| CodeQL workflow | `../.github/workflows/codeql.yml` | Swift 靜態分析；`config-mode: manual`，先未簽署建置再分析。 |
+| CodeQL workflow | `../.github/workflows/codeql.yml` | Swift 靜態分析；`build-mode: manual`，先未簽署建置再分析。 |
 | 健康檢查 | `../.github/workflows/health.yml` | 每日 cron 未簽署建置，偵測 runner/Xcode 版本漂移。 |
 | Dependabot | `../.github/dependabot.yml` | `swift` + `github-actions` 生態系，每週一更新。 |
 **設計原則：** 未簽署四旗標每次必帶（ADR-001）；版本/bundleID/大小/日期 asset-sourced（ADR-003）；一支 workflow 一項職責（ADR-005）；僅 `GITHUB_TOKEN`、零 Apple 機密（ADR-006）。

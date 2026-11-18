@@ -31,16 +31,16 @@ jobs:
         run: chmod +x codebase/scripts/*.sh
 
       - name: 初始化 CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: swift
-          # 停用自動建置 — 我們自行執行未簽署建置。
-          config-mode: manual
+          # 停用自動建置 — 我們自行執行未簽署建置(build-mode: manual)。
+          build-mode: manual
 
       - name: 建置(未簽署,由 CodeQL 觀察)
         run: ./codebase/scripts/build_unsigned_ipa.sh
 
       - name: 執行 CodeQL 分析
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: '/language:swift'

@@ -9,6 +9,13 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v1.2.5] - 2026-11-18
+
+### 修正
+- **修正 IPA 打包失敗(封存成功之後):** `build_unsigned_ipa.sh` 先 `cd` 到 `build/App.xcarchive/ipa-staging` 才用相對路徑 `build/ipa/...` 輸出,造成 `zip I/O error: No such file or directory` / `Could not create output file`。改為在腳本開頭就把 `ARCHIVE_DIR`、`IPA_DIR`、`DSYM_DIR` 轉成絕對路徑;dSYM 打包原本也有同樣問題,一併修正。
+- **修正 CodeQL 設定錯誤:** `github/codeql-action/init` 的合法輸入是 `build-mode`,原本的 `config-mode: manual` 被忽略(僅有 warning),導致手動建置未啟用、job 以 configuration error 結束。改用 `build-mode: manual`,並把 `init`/`analyze` 升級至 `v4`(`v3` 將於 2026 年 12 月停用)。
+- 同步更新 `AGENTS.md`、`docbase/cicd.md`、`docbase/architecture.md` 的 `build-mode` 說明。
+
 ## [v1.2.4] - 2026-11-18
 
 ### 修正
@@ -91,6 +98,7 @@
 
 > 註:v1.0.0 的實作成品位於儲存庫根目錄;v1.1.0 將其遷移至 `codebase/` 並調整工作流程參照路徑。
 
+[v1.2.5]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.5
 [v1.2.4]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.4
 [v1.2.3]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.3
 [v1.2.2]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.2

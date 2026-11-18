@@ -16,9 +16,16 @@ set -euo pipefail
 # ---- 設定(可由環境變數覆寫)----
 CONFIGURATION="${CONFIGURATION:-Release}"
 ARCHIVE_DIR="${ARCHIVE_DIR:-build}"
-ARCHIVE_PATH="$ARCHIVE_DIR/App.xcarchive"
 IPA_DIR="${IPA_DIR:-build/ipa}"
 DSYM_DIR="${DSYM_DIR:-build/dsym}"
+
+# 打包時會 cd 到暫存目錄;先把輸出目錄轉為絕對路徑,否則相對路徑會失效。
+SCRIPT_CWD="$(pwd)"
+abspath() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$SCRIPT_CWD" "$1" ;; esac; }
+ARCHIVE_DIR="$(abspath "$ARCHIVE_DIR")"
+IPA_DIR="$(abspath "$IPA_DIR")"
+DSYM_DIR="$(abspath "$DSYM_DIR")"
+ARCHIVE_PATH="$ARCHIVE_DIR/App.xcarchive"
 
 # 未簽署旗標 — 每次 xcodebuild 呼叫都必須帶上。
 UNSIGN_FLAGS=(
