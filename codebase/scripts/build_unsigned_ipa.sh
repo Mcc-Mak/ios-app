@@ -98,7 +98,8 @@ if [[ -z "$scheme" ]]; then
   schemes_out=$(xcodebuild -list "${xcode_args[@]}" 2>/dev/null || true)
   scheme=$(printf '%s\n' "$schemes_out" \
     | awk '/Schemes:/{f=1;next} f&&/^$/{f=0} f{print}' \
-    | sed '/^[[:space:]]*$/d' \
+    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+    | sed '/^$/d' \
     | head -n1 || true)
 fi
 [[ -n "$scheme" ]] || die "找不到 scheme,請明確設定 SCHEME。"

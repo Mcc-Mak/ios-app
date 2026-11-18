@@ -9,6 +9,14 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v1.2.2] - 2026-11-18
+
+### 修正
+- **修正 scheme 名稱解析的前導空白:** `xcodebuild -list` 輸出的 scheme 行帶有縮排空白,原 `sed` 僅刪除空白行未修剪前後空白,導致 `xcodebuild` 收到 `"        HKMinecraftVoxel"` 而找不到 scheme(CI 測試/建置、CodeQL、health、release 皆失敗)。`codebase/scripts/build_unsigned_ipa.sh` 與 `.github/workflows/ci.yml` 的 inline 探索皆改用 `sed 's/^[[:space:]]*//;s/[[:space:]]*$//'` 修剪空白。此為所有 workflow 失敗的單一根因。
+
+### 新增
+- **`AGENTS.md` 新硬性限制:** git commit 的 subject 與 body 皆須以繁體中文撰寫(Conventional Commits 前綴與程式碼/路徑保持原樣)。
+
 ## [v1.2.1] - 2026-11-18
 
 ### 新增
@@ -66,6 +74,7 @@
 
 > 註:v1.0.0 的實作成品位於儲存庫根目錄;v1.1.0 將其遷移至 `codebase/` 並調整工作流程參照路徑。
 
+[v1.2.2]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.2
 [v1.2.1]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.1
 [v1.2.0]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.0
 [v1.1.0]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.1.0

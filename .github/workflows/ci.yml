@@ -40,7 +40,7 @@ jobs:
           workspace=$(find . -maxdepth 4 -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" -not -path "*/.xcodeproj/project.xcworkspace" | head -n1 || true)
           args=()
           if [[ -n "$workspace" ]]; then args=(-workspace "$workspace"); else args=(-project "$project"); fi
-          scheme=$(xcodebuild -list "${args[@]}" 2>/dev/null | awk '/Schemes:/{f=1;next} f&&/^$/{f=0} f{print}' | sed '/^[[:space:]]*$/d' | head -n1 || true)
+          scheme=$(xcodebuild -list "${args[@]}" 2>/dev/null | awk '/Schemes:/{f=1;next} f&&/^$/{f=0} f{print}' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d' | head -n1 || true)
           echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
           echo "已探索 scheme:$scheme"
 
