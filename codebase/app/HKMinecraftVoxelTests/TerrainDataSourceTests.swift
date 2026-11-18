@@ -3,7 +3,7 @@
 //  HKMinecraftVoxel
 //
 //  程序化香港地形的單元測試:確定性、邊界、海平面鉗制。
-//  CI 於 iOS Simulator 以 CODE_SIGNING_ALLOWED=NO 執行(見 .github/workflows/ci.yml)。
+//  CI 於 iOS Simulator 以 CODE_SIGNING_ALLOWED=NO 執行(見 .github/workflows/cicd.yml)。
 //
 
 import XCTest

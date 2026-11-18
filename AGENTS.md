@@ -39,12 +39,19 @@ flowchart TD
 - Root: `AGENTS.md` (English, this file), `README.md` (繁體中文), `CHANGELOG.md` (semver), `.gitignore`, `LICENSE`.
 - Build output (`build/`, gitignored) is written at repo root when scripts run from root — not under `codebase/`.
 
-## Workflows (`.github/workflows/`, one concern each)
+## Workflow (`.github/workflows/cicd.yml`, single file)
 
-- `ci.yml` — Test (simulator) + Build unsigned IPA + upload artifacts. On push/PR to `main`. Calls `codebase/scripts/build_unsigned_ipa.sh`.
-- `release.yml` — Create GitHub Release on `v*` semver tags; attach `.ipa` + `.dSYM` + `manifest.json`; then triggers `pages.yml`.
-- `pages.yml` — Stage `codebase/site/`, regenerate `apps.json`, deploy via `actions/deploy-pages`.
-- `codeql.yml` (Swift; `build-mode: manual` — runs the unsigned build first so CodeQL can instrument compile), `health.yml` (daily cron build on `main`), `.github/dependabot.yml` (`swift` + `github-actions`, weekly).
+One workflow, multiple jobs, one stable stage order. Do not split it back into per-concern files.
+
+- `test:sast` — simulator tests (+ coverage artifacts) **and** CodeQL Swift (`build-mode: manual`, so the unsigned build is instrumented). Runs on every trigger.
+- `build:ipa` — `needs: test`; calls `codebase/scripts/build_unsigned_ipa.sh`; uploads `unsigned-ipa` (`.ipa` + `manifest.json`) and `dsym`.
+- `release:ipa` — `needs: build`; tags only (`if: startsWith(github.ref, 'refs/tags/v')`); runs on `ubuntu-latest`; downloads the artifacts, then `gh release create` / `gh release upload` (`.ipa` + `.dSYM.zip` + `manifest.json`).
+- `deploy:docs` — `needs: [build, release]`; `if: always()` with `needs.release.result` guards (release is `skipped` on non-tag events); stages `codebase/site/`, regenerates `apps.json`, deploys via `actions/deploy-pages`. Job-level `concurrency: pages`.
+- Triggers: `push` to `main` and `v*` tags, `pull_request`, daily cron (unsigned-build health check), `workflow_dispatch`. `.github/dependabot.yml` covers `swift` + `github-actions`, weekly.
+
+**Naming convention:** the workflow `name:` must contain **no colon**; every job's `name:` is `stage:artifact` (e.g. `test:sast`, `build:ipa`, `release:ipa`, `deploy:docs`). The colon is display-only — GitHub job **keys** cannot contain `:`, so keep keys plain (`test`, `build`, `release`, `deploy`). New stages must keep both the suffix form and the `test → build → release → deploy` order.
+
+Job-level permissions are minimal: `security-events: write` only on `test`, `contents: write` only on `release`, `pages: write` + `id-token: write` only on `deploy`. The workflow-level default is `contents: read`.
 
 ## Build & package (`codebase/scripts/build_unsigned_ipa.sh`)
 
@@ -75,12 +82,14 @@ flowchart TD
 
 - Deploy with the modern flow: `permissions: { pages: write, id-token: write }`, `environment: github-pages`, `actions/upload-pages-artifact` → `actions/deploy-pages`. Repo Pages setting must be **Source: GitHub Actions**, not a branch.
 - Serve `apps.json` at the site root → source URL `https://mcc-mak.github.io/ios-app/apps.json`.
-- Regenerate `apps.json` on every release via `codebase/scripts/generate_apps_json.sh` (called by `pages.yml`, which `release.yml` triggers). Per-app entry, at minimum: `name`, `bundleIdentifier`, `version`, `versionDate` (ISO 8601), `downloadURL`, `size` (bytes). `version` / `versionDate` / `size` / `downloadURL` MUST come from the **actual release asset** (+ `manifest.json`), not be guessed. `downloadURL` = `https://github.com/<owner>/<repo>/releases/download/<tag>/<App>-<Ver>.ipa`. Feed-level metadata comes from `codebase/app.config.json`.
-- The landing page (`codebase/site/index.html`) links the latest `.ipa` and points to README for sideloading steps (single source) — don't duplicate in the site beyond short links.
+- Regenerate `apps.json` on every release via `codebase/scripts/generate_apps_json.sh` (called by the `deploy:docs` job after `release:ipa` succeeds). Per-app entry, at minimum: `name`, `bundleIdentifier`, `version`, `versionDate` (ISO 8601), `downloadURL`, `size` (bytes). `version` / `versionDate` / `size` / `downloadURL` MUST come from the **actual release asset** (+ `manifest.json`), not be guessed. `downloadURL` = `https://github.com/<owner>/<repo>/releases/download/<tag>/<App>-<Ver>.ipa`. Feed-level metadata comes from `codebase/app.config.json`.
+- **Releases, not artifacts, drive the feed.** A CI artifact never appears in `apps.json`; if no `v*` release exists the feed is legitimately `apps: []`. Never "fix" that by guessing a version — publish a tag.
+- The landing page (`codebase/site/index.html`) is the single user-facing home for **all** deployment methods and their step-by-step procedures (IPA download, AltStore/SideStore source, Sideloadly, Xcode, Actions artifacts) plus the 7-day expiry FAQ. When a method changes, update the site; `README.md` is the long-form mirror.
+- The site must never dead-end on a disabled button: when `apps.json` is empty or unreachable, the download button falls back to `https://github.com/<owner>/<repo>/releases/latest` and explains that releases (not artifacts) populate the feed.
 
 ## Conventions
 
-- Semver release tags: `v1.2.3`; `release.yml` on `push: tags: ['v*']`.
+- Semver release tags: `v1.2.3`; the `release:ipa` job runs on `push: tags: ['v*']`.
 - Reuse `codebase/scripts/build_unsigned_ipa.sh` from workflows rather than re-running `xcodebuild` inline.
 - SwiftLint config at `codebase/.swiftlint.yml`; invoke with `--config codebase/.swiftlint.yml` when linting. CodeQL Swift analysis requires the unsigned build to succeed first.
 

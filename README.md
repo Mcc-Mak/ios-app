@@ -13,30 +13,35 @@
 
 ## 管線運作方式
 
+單一工作流程 [`cicd.yml`](.github/workflows/cicd.yml),四個 job 依序執行;
+job 顯示名稱固定為「階段:產物」,工作流程名稱不含冒號。
+
 ```mermaid
-flowchart LR
-  push["push/PR → main"] --> ci["ci.yml<br/>測試 + 建置未簽署 IPA"]
-  ci --> art[("成品<br/>IPA / dSYM / 測試結果")]
-  tag["標籤 v*"] --> rel["release.yml<br/>建置 + GitHub Release"]
-  rel --> ghrel[("GitHub Release<br/>.ipa / .dSYM / manifest.json")]
-  rel -->|"觸發"| pages["pages.yml<br/>產生 apps.json + 部署 Pages"]
-  pages --> site[("GitHub Pages<br/>入口 + apps.json")]
-  site --> user["iPhone<br/>AltStore / SideStore / Sideloadly"]
-  cron["每日 cron"] --> health["health.yml<br/>未簽署建置檢查"]
-  week["每週"] --> codeql["codeql.yml<br/>Swift 分析"] & dep["dependabot<br/>相依性更新"]
+flowchart TD
+  ev["push / PR / 標籤 v* / 每日排程 / 手動"] --> test["test:sast<br/>模擬器測試 + 覆蓋率 + CodeQL"]
+  test --> build["build:ipa<br/>未簽署 IPA + dSYM + manifest"]
+  build --> art[("Actions 成品<br/>unsigned-ipa / dsym / test-results")]
+  build -->|"僅 v* 標籤"| rel["release:ipa<br/>建立 GitHub Release"]
+  rel --> ghrel[("Release 資產<br/>.ipa / .dSYM.zip / manifest.json")]
+  rel --> deploy["deploy:docs<br/>產生 apps.json + 部署 Pages"]
+  build -->|"其他事件"| deploy
+  deploy --> site[("GitHub Pages<br/>入口網站 + apps.json")]
+  site --> user["iPhone<br/>AltStore / SideStore / Sideloadly / Xcode"]
 ```
 
-| 階段 | 工作流程 | 觸發條件 | 產出 |
+| 階段 | Job | 觸發條件 | 產出 |
 | --- | --- | --- | --- |
-| 1. 測試 | [`ci.yml`](.github/workflows/ci.yml) | push/PR 至 `main` | 模擬器單元 + UI 測試、覆蓋率報告 |
-| 2. 建置(未簽署 IPA) | [`ci.yml`](.github/workflows/ci.yml) | push/PR 至 `main` | `<App>-<Ver>.ipa`、`manifest.json` |
-| 3. 上傳成品 | [`ci.yml`](.github/workflows/ci.yml) | (同上) | `unsigned-ipa`、`dsym`、`test-results` 成品 |
-| 4. 發行版本 | [`release.yml`](.github/workflows/release.yml) | 標籤 `v*` | GitHub Release(附 `.ipa` + `.dSYM` + `manifest.json`) |
-| 5. Pages 入口與饋流 | [`pages.yml`](.github/workflows/pages.yml) | 網站/設定變更,或發行版本後 | 入口網站 + 自動更新的 `apps.json` |
-| 6. 監控 | [`codeql.yml`](.github/workflows/codeql.yml)、[`health.yml`](.github/workflows/health.yml)、[`dependabot.yml`](.github/dependabot.yml) | 排程 / push | CodeQL 掃描、每日建置檢查、相依性 PR |
+| 1. 測試 + SAST | [`test:sast`](.github/workflows/cicd.yml) | 全部觸發(push / PR / 標籤 / 排程 / 手動) | 模擬器單元 + UI 測試、覆蓋率、CodeQL Swift 分析 |
+| 2. 建置(未簽署 IPA) | [`build:ipa`](.github/workflows/cicd.yml) | 接續 `test:sast` 成功後 | `<App>-<Ver>.ipa`、`manifest.json`、`.dSYM.zip` |
+| 3. 上傳成品 | [`build:ipa`](.github/workflows/cicd.yml) | 同上 | Actions 成品:`unsigned-ipa`、`dsym`、`test-results` |
+| 4. 發行版本 | [`release:ipa`](.github/workflows/cicd.yml) | 標籤 `v*` | GitHub Release(附 `.ipa` + `.dSYM.zip` + `manifest.json`) |
+| 5. Pages 入口與饋流 | [`deploy:docs`](.github/workflows/cicd.yml) | push 至 `main`、標籤發行後、手動 | 入口網站 + 自動更新的 `apps.json` |
+| 6. 監控 | 每日排程 + [`dependabot.yml`](.github/dependabot.yml) | 排程 / 每週 | 未簽署建置健康檢查、相依性 PR |
 
-所有工作流程僅使用內建 `GITHUB_TOKEN` —— **零 Apple 機密**需設定。每次 `xcodebuild`
+所有 job 僅使用內建 `GITHUB_TOKEN` —— **零 Apple 機密**需設定。每次 `xcodebuild`
 皆以 `CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""` 執行。
+權限下放到各 job:`security-events: write` 僅 `test:sast`、`contents: write` 僅
+`release:ipa`、`pages: write` + `id-token: write` 僅 `deploy:docs`。
 
 ### 建置與打包邏輯
 
@@ -55,30 +60,45 @@ flowchart LR
 
 ## 如何觸發建置
 
-- **CI(測試 + 未簽署 IPA):** push 至 `main` 或開 PR。成品會出現在工作流程執行的
-  「Artifacts」區,供立即驗證。
-- **發行版本:** push 語意化版本標籤 —— `git tag v1.2.3 && git push origin v1.2.3`。
-  `release.yml` 會建置 IPA、建立附說明 + `.ipa` + `.dSYM` 的 GitHub Release,再觸發
-  `pages.yml` 更新 `apps.json`。
-- **Pages(入口與饋流):** 任何觸及 `codebase/site/`、`codebase/app.config.json` 或
-  產生器腳本的 push 會自動重新部署。每次發行版本後也會重新執行。
-- **手動:** 每個工作流程都有「Run workflow」按鈕(`workflow_dispatch`)。
+- **push 至 `main` 或開 PR:** `test:sast` → `build:ipa`。PR 只驗證,不發行、不部署;
+  `main` 會再執行 `deploy:docs` 更新入口網站。
+- **發行版本:** push 語意化版本標籤 —— `git tag v1.3.0 && git push origin v1.3.0`。
+  `release:ipa` 會建立附說明 + `.ipa` + `.dSYM.zip` + `manifest.json` 的 GitHub Release,
+  接著 `deploy:docs` 重新產生 `apps.json`,版本即出現在入口網站。
+- **入口網站:** `main` 的 push 或手動執行都會重新部署 `codebase/site/` 並更新饋流。
+- **每日健康檢查:** 排程 `17 6 * * *` 執行未簽署建置,及早發現 runner / Xcode 漂移。
+- **手動:** Actions → 零機密 iOS 管線 → *Run workflow*。
 
 ### 一次性儲存庫設定
 
 1. **Pages 來源:** Settings → Pages → *Build and deployment* →
-   **Source: GitHub Actions**(非分支)。否則 `pages.yml` 部署會失敗。
+   **Source: GitHub Actions**(非分支)。否則 `deploy:docs` 會失敗。
 2. **工作流程權限:** Settings → Actions → General → *Workflow permissions* →
-   **Read and write**(讓 `release.yml` 能建立發行版本並觸發 `pages.yml`)。權杖仍為
-   儲存庫範圍且免費。
-3. **加入 Xcode 專案**至儲存庫根目錄。標記第一個發行版本(`v0.1.0`)即可發布。
+   **Read and write**(讓 `release:ipa` 能建立發行版本、`deploy:docs` 能部署 Pages)。
+   權杖仍為儲存庫範圍且免費。
+3. **第一個發行版本:** push 一個 `v*` 標籤即可發布;在那之前 `apps.json` 的 `apps`
+   會是空陣列(入口網站會顯示說明並連到 `releases/latest`)。
 
 ---
 
 ## 在 iPhone 上安裝
 
-擇一方式。所有方式皆使用**免費 Apple ID** 並安裝你掌控的未簽署 IPA。參見
-[7 天更新週期](#7-天免費-apple-id-憑證更新週期)。
+擇一方式。所有方式皆使用**免費 Apple ID** 並安裝你掌控的未簽署 IPA。入口網站
+<https://mcc-mak.github.io/ios-app/> 也列出下列每種方式的完整步驟,以及 7 天憑證常見問題。
+
+### 哪裡下載 IPA
+
+| 位置 | 連結 | 特性 |
+| --- | --- | --- |
+| **GitHub Releases(建議)** | <https://github.com/Mcc-Mak/ios-app/releases/latest> | 永久連結、免登入;`apps.json` 與入口網站都指向這裡 |
+| 入口網站下載鈕 | <https://mcc-mak.github.io/ios-app/> | 由 `apps.json` 顯示版本、大小、日期 |
+| Actions 成品 | Actions → `build:ipa` → `unsigned-ipa` | 暫時性、需登入 GitHub、保留 30 天 |
+
+> 入口網站若顯示「尚無發行版本」,代表儲存庫**還沒有任何 `v*` Release**。CI 的 Actions
+> 成品不會寫入 `apps.json`;推送一個版本標籤(`git tag v1.3.0 && git push origin v1.3.0`)
+> 後,`release:ipa` 建立 Release、`deploy:docs` 重新產生饋流,版本就會出現。
+
+參見[7 天更新週期](#7-天免費-apple-id-憑證更新週期)。
 
 ### 透過 Sideloadly 側載
 
@@ -122,7 +142,7 @@ flowchart LR
 
 ```
 .github/
-  workflows/        ci、release、pages、codeql、health
+  workflows/        cicd.yml(單一工作流程:test:sast → build:ipa → release:ipa → deploy:docs)
   dependabot.yml    swift + github-actions 相依性更新
 codebase/           所有實作成品
   scripts/
@@ -138,8 +158,8 @@ README.md
 ```
 
 `.github/workflows/` 與 `.github/dependabot.yml` 必須留在儲存庫根目錄(GitHub 的硬性
-要求),但會參照 `codebase/` 下的腳本與網站。Xcode 專案(`.xcodeproj`)加入後置於
-儲存庫根目錄。
+要求),但會參照 `codebase/` 下的腳本與網站。Xcode 專案位於
+`codebase/app/HKMinecraftVoxel.xcodeproj`,由建置腳本自動探索。
 
 ---
 

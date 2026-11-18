@@ -9,6 +9,31 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v1.3.0] - 2026-11-18
+
+### 新增
+- **單一工作流程 `cicd.yml`:** 把原本五支 workflow(`ci`、`release`、`pages`、`codeql`、`health`)整併為一支,內含四個以 `needs` 串接的 job:`test:sast` → `build:ipa` → `release:ipa` → `deploy:docs`。工作流程名稱不含冒號,job 顯示名稱一律為 `階段:產物`;job key 保持 `test`/`build`/`release`/`deploy`(GitHub 的 job key 不接受 `:`)。
+- **`test:sast`:** 模擬器測試 + 覆蓋率,以及 CodeQL Swift(`build-mode: manual`)合併於同一 job;測試成品先上傳,再執行 CodeQL 觀察的未簽署建置,避免建置腳本清除 `build/` 時遺失結果。Dependabot PR 與外部 fork PR 自動略過 CodeQL(權杖唯讀),測試照常。
+- **`release:ipa`:** 標籤 `v*` 時在 `ubuntu-latest` 以 `actions/download-artifact` 取回 IPA/dSYM,再 `gh release create`/`gh release upload`;以 `nullglob` 處理缺少 dSYM 的情況。
+- **`deploy:docs`:** 以 `needs: [build, release]` + `always()` 在同一 run 內等發行成功後部署 Pages,取代原本 `release.yml` 以 `gh workflow run pages.yml` 交叉觸發;`release` 在非標籤事件為 `skipped` 時仍會部署。
+- **入口網站完整側載教學:** `codebase/site/index.html` 新增五種安裝方式的逐步說明(AltStore、SideStore、Sideloadly、Xcode、GitHub Actions 成品)、來源 URL 複製按鈕、管線階段與觸發表,以及 7 天憑證/未信任開發者/數量限制等常見問題。版面改為響應式卡片與編號步驟。
+- **執行摘要:** `build:ipa` 與 `release:ipa` 寫入 `GITHUB_STEP_SUMMARY`,直接列出 IPA 檔名、版本與 `releases/latest` 連結。
+
+### 變更
+- **`build:ipa` 以 `needs: test` 做為發行閘門:** 測試或 CodeQL 失敗即不建置、不發行(原本 CI 的建置 job 為 `always()`)。
+- **每日健康檢查併入排程:** `schedule: '17 6 * * *'` 觸發同一條 `test:sast` → `build:ipa`,不再有獨立 `health.yml`。
+- **權限下放到 job:** 工作流程預設 `contents: read`;`security-events: write` 僅 `test:sast`、`contents: write` 僅 `release:ipa`、`pages: write` + `id-token: write` 僅 `deploy:docs`。
+- **併發策略:** 只在 `pull_request` 取消被取代的執行,避免中斷 `main`/標籤的 Pages 部署;`deploy:docs` 另有 job-level `concurrency: pages`。
+- **App 版本對齊:** `CFBundleShortVersionString` 與 `MARKETING_VERSION` 由 `0.1.0` 升至 `1.3.0`,使首個 `v1.3.0` Release 的 `apps.json` 版本與標籤一致。
+- **文件同步:** `AGENTS.md`、`README.md` 與 `docbase/`(adr、architecture、api、cicd、configurations、crm、pdr、prd、quick-start、rtm、srs、setup、toctree、uiux、user-stories)全數改為單一工作流程與新 job 名稱;ADR-005 改記「單一工作流程、多 job」的決策轉向。移除「入口網站只放短連結、步驟以 README 為單一來源」的舊規則。
+
+### 修正
+- **修正入口網站顯示「尚無發行版本」後無法下載:** 根本原因是儲存庫從未推送 `v*` 標籤,`apps.json` 只依 GitHub Release 產生,CI 的 Actions 成品不會進入饋流。入口網站現在預設就連到 `releases/latest`,空饋流或 `fetch` 失敗時仍可點擊,並在頁面說明「Release 才是饋流來源」與 Actions 成品的替代路徑。
+- **修正 `deploy:docs` 對空饋流的呈現:** 不再顯示灰色的停用按鈕。
+
+### 移除
+- `.github/workflows/ci.yml`、`release.yml`、`pages.yml`、`codeql.yml`、`health.yml`(由 `cicd.yml` 取代)。
+
 ## [v1.2.6] - 2026-11-18
 
 ### 修正
@@ -105,6 +130,7 @@
 
 > 註:v1.0.0 的實作成品位於儲存庫根目錄;v1.1.0 將其遷移至 `codebase/` 並調整工作流程參照路徑。
 
+[v1.3.0]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.3.0
 [v1.2.6]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.6
 [v1.2.5]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.5
 [v1.2.4]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.4

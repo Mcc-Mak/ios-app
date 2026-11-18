@@ -12,7 +12,7 @@ timeline
         ADR-003 : manifest.json asset-sourced
         ADR-004 : GitHub Pages 饋流
     section 組織與安全
-        ADR-005 : 模組化 workflow
+        ADR-005 : 單一 workflow 多 job
         ADR-006 : 僅 GITHUB_TOKEN
     section App 實作
         ADR-007 : 原生 Swift + SceneKit
@@ -45,21 +45,21 @@ timeline
 
 - **狀態：** 已接受
 - **內容：** 免費 Apple ID 憑證每 7 天過期，使用者需重新安裝/刷新。需要一個無後端、自動更新、零成本的分發管道。
-- **決策：** 以 GitHub Pages 託管靜態入口網站（`../codebase/site/`）與 `apps.json` 饋流。來源 URL 為 `https://mcc-mak.github.io/ios-app/apps.json`。`apps.json` 於每次發行後由 `../.github/workflows/pages.yml` 重新產生。儲存庫 Pages 設定必須為 **Source: GitHub Actions**。
+- **決策：** 以 GitHub Pages 託管靜態入口網站（`../codebase/site/`）與 `apps.json` 饋流。來源 URL 為 `https://mcc-mak.github.io/ios-app/apps.json`。`apps.json` 於每次發行後由 `../.github/workflows/cicd.yml` 的 `deploy:docs` job 重新產生。儲存庫 Pages 設定必須為 **Source: GitHub Actions**。
 - **後果：** 無伺服器維護成本；饋流隨發行自動更新。使用者於 AltStore/SideStore 加入來源後，可一鍵安裝並於 7 天週期內刷新。
 
-## ADR-005：模組化工作流程（每支 workflow 一項職責）
+## ADR-005：單一工作流程、多 job（階段化管線）
 
-- **狀態：** 已接受
-- **內容：** 單一龐大 workflow 難以維護、重試與審查。
-- **決策：** `.github/workflows/` 下每支 YAML 各司其職：`ci.yml`（測試+建置）、`release.yml`（發行）、`pages.yml`（部署饋流）、`codeql.yml`（安全分析）、`health.yml`（每日健康檢查）。發行後由 `release.yml` 觸發 `pages.yml`。
-- **後果：** 各階段可獨立重試、權限最小化（如 `pages.yml` 僅需 `pages: write` + `id-token: write`）。新增職責時新增 workflow，而非膨脹既有檔案。
+- **狀態：** 已接受（取代原本「每支 workflow 一項職責」的分割）
+- **內容：** 多支 workflow 需要以 `gh workflow run` 交叉觸發，難以一眼看懂階段順序，也重複 checkout 與建置；使用者要求可追溯的單一鏈路。
+- **決策：** `.github/workflows/cicd.yml` 為唯一工作流程，依序 `test:sast` → `build:ipa` → `release:ipa` → `deploy:docs`；job 之間以 `needs` 與 artifacts 傳遞產物，不再交叉觸發。工作流程名稱不含冒號，job 顯示名稱為 `階段:產物`，權限下放到各 job（`security-events: write`、`contents: write`、`pages: write` + `id-token: write`）。
+- **後果：** 一次執行即可看到完整鏈路，發行與部署有明確順序，權限仍最小化。代價是單一檔案較長，且 `deploy:docs` 需要 `build:ipa` 成功；每日健康檢查改由 `schedule` 觸發同一條 `test:sast` → `build:ipa`。
 
 ## ADR-006：僅使用 GITHUB_TOKEN，零 Apple 機密
 
 - **狀態：** 已接受
 - **內容：** 引入任何 Apple 機密（certs、profiles、App Store Connect keys）即破壞「零成本、可 fork」前提。
-- **決策：** 全 pipeline 僅使用內建 `GITHUB_TOKEN`（`permissions` 於各 workflow 內宣告最小範圍）。永不引入 `fastlane match`、簽署憑證、provisioning profile 或 App Store Connect keys。
+- **決策：** 全 pipeline 僅使用內建 `GITHUB_TOKEN`（`permissions` 於 `cicd.yml` 各 job 內宣告最小範圍）。永不引入 `fastlane match`、簽署憑證、provisioning profile 或 App Store Connect keys。
 - **後果：** 任何 fork 在零額外 secret 設定下即可運作 CI。安全性完全依賴 GitHub 內建權限模型，無外部信任邊界。
 
 ## ADR-007：以原生 Swift + SceneKit 實作體素 App（非 Unity + Cesium）

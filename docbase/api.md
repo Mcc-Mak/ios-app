@@ -30,8 +30,8 @@ sequenceDiagram
 | 認證 | 無（公開儲存庫） |
 | Content-Type | `application/json` |
 | 字元編碼 | UTF-8 |
-| 產生者 | `../codebase/scripts/generate_apps_json.sh`（由 `../.github/workflows/pages.yml` 呼叫） |
-| 更新時機 | 每次發行後（`release.yml` 觸發 `pages.yml`）；站台/設定變更 push 至 `main` 時 |
+| 產生者 | `../codebase/scripts/generate_apps_json.sh`（由 `../.github/workflows/cicd.yml` 的 `deploy:docs` 呼叫） |
+| 更新時機 | 每次發行後（同一次執行的 `release:ipa` → `deploy:docs`）；`main` 的 push 或手動執行時 |
 
 ### 回應結構（apps.json）
 
@@ -43,7 +43,7 @@ sequenceDiagram
     "size": 1234567, "iconURL": "" }] }
 ```
 
-無發行版本時回傳合法空饋流 `{ ..., "apps": [] }`（入口網站據此顯示「尚無發行版本」）。完整逐欄定義見 `./schema.md`。
+無發行版本時回傳合法空饋流 `{ ..., "apps": [] }`（入口網站會顯示「尚無發行版本」的說明，並將下載按鈕連到 `releases/latest`）。完整逐欄定義見 `./schema.md`。
 
 ### 欄位來源分類
 

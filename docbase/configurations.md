@@ -43,19 +43,18 @@ flowchart LR
 |------|------|------|
 | `GITHUB_REPOSITORY` | 是 | `owner/repo` |
 | `GITHUB_TOKEN` | 是 | 內建 token，查詢 Release asset |
-| `APP_CONFIG` | 否 | 指向 `app.config.json`；腳本預設 `app.config.json`，`pages.yml` 會傳入 `codebase/app.config.json` |
+| `APP_CONFIG` | 否 | 指向 `app.config.json`；腳本預設 `app.config.json`，`deploy:docs` 會傳入 `codebase/app.config.json` |
 
-用法：`generate_apps_json.sh [output_path] [config_path]`；需 `gh` + `jq`。
+用法：`generate_apps_json.sh [output_path] [config_path]`；需 `gh` + `jq`（`GH_TOKEN` 或 `GITHUB_TOKEN`）。
 
 ## Workflow 觸發條件
 
-| Workflow | 觸發 | Runner |
+| Job（`cicd.yml`） | 觸發 | Runner |
 |----------|------|--------|
-| `ci.yml` | `push` / `pull_request` 到 `main` | `macos-latest` |
-| `release.yml` | `push` tag `v*`（semver） | `macos-latest` |
-| `pages.yml` | `push` 到 `codebase/site/` 或 `app.config.json`；`workflow_dispatch`；被 `release.yml` 觸發 | `ubuntu-latest` |
-| `codeql.yml` | `push` / `pull_request` 到 `main`；每週排程 | `macos-latest` |
-| `health.yml` | 每日 cron `17 6 * * *` | `macos-latest` |
+| `test:sast` | `push` / `pull_request` / 標籤 `v*` / 每日排程 / `workflow_dispatch` | `macos-latest` |
+| `build:ipa` | 接續 `test:sast` 成功後 | `macos-latest` |
+| `release:ipa` | `push` tag `v*`（semver）且 `build:ipa` 成功 | `ubuntu-latest` |
+| `deploy:docs` | `push` / `workflow_dispatch`，且 `build:ipa` 成功；標籤事件需 `release:ipa` 成功 | `ubuntu-latest` |
 | Dependabot | 每週一 | n/a |
 
 相關檔案：`../codebase/scripts/build_unsigned_ipa.sh`、`../codebase/scripts/generate_apps_json.sh`、`../codebase/app.config.json`、`../codebase/.swiftlint.yml`、`../.github/dependabot.yml`、`../AGENTS.md`。

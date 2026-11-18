@@ -1,0 +1,317 @@
+# cicd.yml — 零機密 iOS 管線(單一工作流程,多個 job)
+#
+# 階段順序(每個 job 顯示名稱皆為「*:*」):
+#   test:sast    → 模擬器測試 + 覆蓋率 + CodeQL Swift 靜態分析(未簽署)
+#   build:ipa    → 建置並打包未簽署 IPA / dSYM / manifest.json,上傳成品
+#   release:ipa  → 僅標籤 v*:建立 GitHub Release 並附加資產
+#   deploy:docs  → 部署入口網站,並由最新 Release 重新產生 apps.json
+#
+# 觸發:
+#   - push 至 main(測試 + 建置 + 部署入口網站)
+#   - push 標籤 v*(完整鏈:測試 → 建置 → 發行 → 部署)
+#   - pull_request 至 main(測試 + 建置;不發行、不部署)
+#   - 每日排程(健康檢查:及早發現 runner / Xcode 版本漂移)
+#   - workflow_dispatch(手動)
+#
+# 零 Apple 機密:僅使用內建 GITHUB_TOKEN。所有 xcodebuild 皆未簽署:
+#   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+#   CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""
+#
+# 一次性儲存庫設定:
+#   Settings → Pages → Build and deployment → Source = GitHub Actions(非分支)
+#   Settings → Actions → General → Workflow permissions = Read and write
+name: 零機密 iOS 管線
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * *'   # 每日 ~06:17 UTC:未簽署建置健康檢查
+  workflow_dispatch:
+
+# 僅取消 pull_request 上被取代的舊執行;main / 標籤的執行(含 Pages 部署)不中斷。
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------- test:sast
+  test:
+    name: 'test:sast'
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      security-events: write   # CodeQL 上傳 SARIF 必要
+    steps:
+      - name: 取出原始碼
+        uses: actions/checkout@v4
+
+      - name: 選擇 Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: 設定腳本為可執行
+        run: chmod +x codebase/scripts/*.sh
+
+      - name: 探索專案與 scheme
+        id: discover
+        run: |
+          set -euo pipefail
+          project=$(find . -maxdepth 4 -name "*.xcodeproj" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" | head -n1 || true)
+          workspace=$(find . -maxdepth 4 -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" -not -path "*/.xcodeproj/project.xcworkspace" | head -n1 || true)
+          args=()
+          if [[ -n "$workspace" ]]; then args=(-workspace "$workspace"); else args=(-project "$project"); fi
+          scheme=$(xcodebuild -list "${args[@]}" 2>/dev/null | awk '/Schemes:/{f=1;next} f&&/^$/{f=0} f{print}' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d' | head -n1 || true)
+          echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
+          echo "已探索 scheme:$scheme"
+
+      - name: 執行單元與 UI 測試(未簽署)
+        if: steps.discover.outputs.scheme != ''
+        run: |
+          set -euo pipefail
+          project=$(find . -maxdepth 4 -name "*.xcodeproj" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" | head -n1 || true)
+          workspace=$(find . -maxdepth 4 -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" -not -path "*/.xcodeproj/project.xcworkspace" | head -n1 || true)
+          args=()
+          if [[ -n "$workspace" ]]; then args=(-workspace "$workspace"); else args=(-project "$project"); fi
+          # 動態選取可用 iPhone 模擬器(避免特定機型名稱在不同 Xcode 版本不存在)。
+          sim_udid=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin); print(next((dev['udid'] for rt,devs in d['devices'].items() for dev in devs if 'iPhone' in dev.get('name','') and dev.get('isAvailable')), ''))")
+          [[ -n "$sim_udid" ]] || { echo "::error::找不到可用 iPhone 模擬器"; exit 1; }
+          echo "使用模擬器 UDID:$sim_udid"
+          xcrun simctl boot "$sim_udid" 2>/dev/null || true
+          xcodebuild test "${args[@]}" \
+            -scheme "${{ steps.discover.outputs.scheme }}" \
+            -destination "id=$sim_udid" \
+            -enableCodeCoverage YES \
+            -resultBundlePath build/Test.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""
+
+      - name: 匯出程式碼覆蓋率報告
+        if: always() && steps.discover.outputs.scheme != ''
+        run: |
+          mkdir -p build/reports
+          if [[ -d build/Test.xcresult ]]; then
+            xcrun xccov view --report --json build/Test.xcresult > build/reports/coverage.json 2>/dev/null || true
+            xcrun xccov view --report build/Test.xcresult > build/reports/coverage.txt 2>/dev/null || true
+          fi
+
+      - name: 上傳測試結果與覆蓋率
+        if: always() && steps.discover.outputs.scheme != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            build/Test.xcresult
+            build/reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # ---- SAST:CodeQL Swift(需先 init,再讓未簽署建置被儀器化)----
+      # 先上傳測試成品再跑 CodeQL 建置,因為建置腳本會清除 build/ 目錄。
+      - name: 初始化 CodeQL
+        if: ${{ success() && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: github/codeql-action/init@v4
+        with:
+          languages: swift
+          # 停用自動建置 — 我們自行執行未簽署建置(build-mode: manual)。
+          build-mode: manual
+
+      - name: 建置(未簽署,由 CodeQL 觀察)
+        if: ${{ success() && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        run: ./codebase/scripts/build_unsigned_ipa.sh
+
+      - name: 執行 CodeQL 分析
+        if: ${{ success() && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:swift'
+
+  # ----------------------------------------------------------------- build:ipa
+  build:
+    name: 'build:ipa'
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - name: 取出原始碼
+        uses: actions/checkout@v4
+
+      - name: 選擇 Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: 設定腳本為可執行
+        run: chmod +x codebase/scripts/*.sh
+
+      - name: 建置並打包未簽署 IPA
+        id: build
+        run: ./codebase/scripts/build_unsigned_ipa.sh
+
+      - name: 上傳未簽署 IPA 與 manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: |
+            build/ipa/*.ipa
+            build/ipa/manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 上傳 dSYM 符號檔
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsym
+          path: build/dsym/*.dSYM.zip
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: 寫入執行摘要
+        run: |
+          {
+            echo "### 未簽署建置成品"
+            echo ""
+            echo "| 項目 | 值 |"
+            echo "| --- | --- |"
+            echo "| App | ${{ steps.build.outputs.app-name }} |"
+            echo "| 版本 | ${{ steps.build.outputs.app-version }} |"
+            echo "| Bundle ID | ${{ steps.build.outputs.bundle-id }} |"
+            echo "| IPA | \`${{ steps.build.outputs.ipa-file-name }}\` |"
+            echo ""
+            echo "- 本次執行下載:本頁底部 **Artifacts → unsigned-ipa**(需登入 GitHub,保留 30 天)。"
+            echo "- 永久下載:https://github.com/${{ github.repository }}/releases/latest"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # --------------------------------------------------------------- release:ipa
+  release:
+    name: 'release:ipa'
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 建立發行版本 + 上傳資產
+    steps:
+      - name: 下載 IPA 成品
+        uses: actions/download-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: build/ipa
+
+      - name: 下載 dSYM 成品(若存在)
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: dsym
+          path: build/dsym
+
+      - name: 建立 GitHub Release 並附加資產
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          manifest="build/ipa/manifest.json"
+          app=$(jq -r '.appName' "$manifest")
+          ver=$(jq -r '.version' "$manifest")
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::發行版本 $tag 已存在,改為更新資產。"
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$app $ver" \
+              --generate-notes \
+              --verify-tag
+          fi
+
+          # 以 nullglob 收集資產,避免 dSYM 不存在時把字面 glob 傳給 gh。
+          shopt -s nullglob
+          assets=(build/ipa/*.ipa "$manifest")
+          dsyms=(build/dsym/*.dSYM.zip)
+          shopt -u nullglob
+          if (( ${#dsyms[@]} )); then assets+=("${dsyms[@]}"); fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+
+          {
+            echo "### 發行版本 \`$tag\`"
+            echo ""
+            echo "- App:$app $ver"
+            echo "- IPA:https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$(basename "${assets[0]}")"
+            echo "- 入口網站:https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------- deploy:docs
+  deploy:
+    name: 'deploy:docs'
+    needs: [build, release]
+    # main / 手動觸發都部署;標籤發行必須等 release 成功。
+    # release 在非標籤事件會被略過(skipped),此時仍應部署文件。
+    if: |
+      always() && !cancelled()
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && needs.build.result == 'success'
+      && (needs.release.result == 'success' || needs.release.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write   # actions/deploy-pages 必要
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # 同一時間僅一個 Pages 部署,且不取消進行中的部署。
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: 取出原始碼
+        uses: actions/checkout@v4
+
+      - name: 設定腳本為可執行
+        run: chmod +x codebase/scripts/*.sh
+
+      - name: 設定 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 暫存網站
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp -r codebase/site/. _site/
+
+      - name: 產生 apps.json(最新發行版本)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./codebase/scripts/generate_apps_json.sh _site/apps.json codebase/app.config.json
+
+      - name: 顯示產生的饋流
+        run: cat _site/apps.json
+
+      - name: 寫入執行摘要
+        run: |
+          {
+            echo "### 入口網站與發行饋流"
+            echo ""
+            echo "- 網站:https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+            echo "- 饋流:https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/apps.json"
+            echo "- 最新發行版本:https://github.com/${{ github.repository }}/releases/latest"
+            echo ""
+            echo '```json'
+            cat _site/apps.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 上傳 Pages 成品
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4

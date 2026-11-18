@@ -22,22 +22,24 @@ flowchart LR
 ```mermaid
 block-beta
   columns 1
-  header["header:HK Minecraft + 標語"]
-  install["安裝卡片:最新版本 / 大小·日期 / [下載 .ipa]"]
-  altstore["加入 AltStore/SideStore:來源 URL(可複製) + 操作提示"]
-  manual["手動側載:Sideloadly / AltStore / 7 天週期(連結 README)"]
-  footer["footer:所有發行版本 · 原始碼"]
-  header --> install --> altstore --> manual --> footer
+  header["header:HK Minecraft + 標語 + 快速標籤 + 頁內導覽"]
+  install["下載卡片:最新版本 / 大小·日期 / [下載 .ipa] / [所有發行版本]"]
+  methods["安裝方式:AltStore / SideStore / Sideloadly / Xcode / Actions 成品(完整步驟)"]
+  faq["常見問題:空饋流、未信任開發者、7 天憑證、數量限制"]
+  pipeline["管線:test:sast → build:ipa → release:ipa → deploy:docs"]
+  footer["footer:所有發行版本 · 原始碼 · MIT"]
+  header --> install --> methods --> faq --> pipeline --> footer
 ```
 
 ### 設計要點
 
 - **深色主題（dark theme）**，響應式（`viewport` meta）。
-- **最新版本卡片**：從 `apps.json` 的 `apps[0]` 取 `version`、`downloadURL`、`size`、`versionDate`；無發行版本時顯示「尚無」並停用按鈕。
-- **下載按鈕**：直接連到 `downloadURL`（公開 Release 資產）。
-- **來源 URL 區區塊**：顯示 `apps.json` 端點，供使用者複製貼入 AltStore/SideStore。
-- **手動側載連結**：指向 `README.md` 錨點（側載步驟單一來源，站台不重複內容）。
-- **無後端**：純靜態，部署於 GitHub Pages；`fetch` 失敗時降級級顯示「饋流無法取得」。
+- **最新版本卡片**：從 `apps.json` 的 `apps[0]` 取 `version`、`downloadURL`、`size`、`versionDate`。
+- **永不失效的下載按鈕**：HTML 預設即指向 `releases/latest`；饋流為空或 `fetch` 失敗時保持可點擊，並顯示「為何沒有版本」（Release 才是饋流來源，Actions 成品不會進入饋流）。
+- **下載按鈕**：有版本時直接連到 `downloadURL`（公開 Release 資產）。
+- **來源 URL 區塊**：顯示 `apps.json` 端點（依部署位置推導，分叉可用），附「複製」按鈕。
+- **安裝方式**：五種途徑（AltStore、SideStore、Sideloadly、Xcode、Actions 成品）各自列出編號步驟，站台本身即完整教學，不再只連到 README。
+- **無後端**：純靜態，部署於 GitHub Pages；`fetch` 失敗時降級顯示說明與 `releases/latest` 連結。
 
 ## (b) AltStore / SideStore 安裝流程 UX
 

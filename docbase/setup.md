@@ -8,7 +8,7 @@ flowchart TD
   repo --> build["本機執行 build_unsigned_ipa.sh"]
   build --> verify["unzip -l 驗證 Payload/ 根目錄"]
   verify --> preview["預覽 Pages 站台"]
-  preview --> tag["tag v0.1.0 觸發 release.yml"]
+  preview --> tag["tag v0.1.0 觸發 cicd.yml"]
 ```
 
 ## 本機開發前置需求
@@ -32,8 +32,8 @@ gh auth login
 
 在 GitHub 上對 `Mcc-Mak/ios-app` 做兩項設定（只需一次）：
 
-1. **Settings → Pages → Source = GitHub Actions**（不要選 branch）。Pages 才能由 `pages.yml` 部署到 https://mcc-mak.github.io/ios-app/。
-2. **Settings → Actions → General → Workflow permissions = Read and write**。讓 `release.yml` 能建立 Release、`pages.yml` 能觸發部署。
+1. **Settings → Pages → Source = GitHub Actions**（不要選 branch）。Pages 才能由 `deploy:docs` 部署到 https://mcc-mak.github.io/ios-app/。
+2. **Settings → Actions → General → Workflow permissions = Read and write**。讓 `release:ipa` 能建立 Release、`deploy:docs` 能部署 Pages。
 
 此 pipeline 僅使用內建 `GITHUB_TOKEN`，無需新增任何 secret。
 
@@ -88,6 +88,6 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-推上 `v*` tag 後會觸發 `../.github/workflows/release.yml`：建置 IPA、建立 GitHub Release、上傳 `.ipa` + `.dSYM` + `manifest.json`，並觸發 `pages.yml` 重新產生 `apps.json`。
+推上 `v*` tag 後會觸發 `../.github/workflows/cicd.yml` 的完整鏈路：`test:sast` 通過後 `build:ipa` 建置 IPA，`release:ipa` 建立 GitHub Release 並上傳 `.ipa` + `.dSYM.zip` + `manifest.json`，最後 `deploy:docs` 重新產生 `apps.json` 並部署入口網站。
 
-相關檔案：`../codebase/scripts/build_unsigned_ipa.sh`、`../codebase/scripts/generate_apps_json.sh`、`../.github/workflows/release.yml`、`../.github/workflows/pages.yml`。
+相關檔案：`../codebase/scripts/build_unsigned_ipa.sh`、`../codebase/scripts/generate_apps_json.sh`、`../.github/workflows/cicd.yml`。

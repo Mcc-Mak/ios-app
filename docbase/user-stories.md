@@ -13,12 +13,12 @@ flowchart LR
     US4["US-4 tag 觸發發行"]
     US5["US-5 監控健康"]
   end
-  subgraph 貢貢獻者["貢獻者"]
+  subgraph 貢獻者["貢獻者"]
     US6["US-6 PR 跑 CI"]
   end
-  US4 --> release["release.yml"]
-  US6 --> ci["ci.yml"]
-  US5 --> health["health.yml"]
+  US4 --> release["cicd.yml / release:ipa"]
+  US6 --> ci["cicd.yml / test:sast + build:ipa"]
+  US5 --> health["cicd.yml / 每日排程"]
   US1 --> ipa["Release .ipa"]
   US2 --> feed["apps.json"]
   US3 --> feed
@@ -42,14 +42,14 @@ flowchart LR
 
 ### US-4：以 tag 觸發發行
 作為維護者，我想要推送 `v*` semver tag 自動建置並發行，以便無手動步驟地交付新版。
-- **驗收條件**：`../.github/workflows/release.yml` 建立 Release，附掛 `.ipa` + `.dSYM.zip` + `manifest.json`，並觸發 `pages.yml`。
+- **驗收條件**：`../.github/workflows/cicd.yml` 的 `release:ipa` 建立 Release，附掛 `.ipa` + `.dSYM.zip` + `manifest.json`；同一次執行的 `deploy:docs` 重建饋流。
 
 ### US-5：監控 pipeline 健康
 作為維護者，我想要每日自動建置檢查，以便及早發現 runner/Xcode 漂移。
-- **驗收條件**：`../.github/workflows/health.yml` 每日 cron 於 `main` 執行未簽署建置；失敗時通知。
+- **驗收條件**：`../.github/workflows/cicd.yml` 的每日排程於 `main` 執行 `test:sast` → `build:ipa`；失敗時通知。
 
 ## 角色：貢獻者
 
 ### US-6：在 PR 上跑 CI
 作為貢獻者，我想要對 PR 自動執行測試與未簽署建置，以便在合併前驗證變更。
-- **驗收條件**：`../.github/workflows/ci.yml` 於 PR 到 `main` 觸發；回報測試結果、覆蓋率與 IPA artifact。
+- **驗收條件**：`../.github/workflows/cicd.yml` 於 PR 到 `main` 觸發 `test:sast` → `build:ipa`；回報測試結果、覆蓋率與 IPA artifact。

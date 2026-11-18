@@ -16,28 +16,28 @@ flowchart TD
 
 ## 表一：文件 × 元件
 
-元件欄簡寫：`build`=build_unsigned_ipa.sh、`gen`=generate_apps_json.sh、`site`=site/、`cfg`=app.config.json，其餘為 workflow 檔名。
+元件欄簡寫：`build`=build_unsigned_ipa.sh、`gen`=generate_apps_json.sh、`site`=site/、`cfg`=app.config.json，`cicd`=cicd.yml，`dependabot`=dependabot.yml。
 
-| 文件 | build | gen | site | cfg | ci.yml | release.yml | pages.yml | codeql.yml | health.yml | dependabot.yml |
-|------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| toctree | · | · | · | · | · | · | · | · | · | · |
-| charter | · | · | · | · | ✓ | ✓ | ✓ | · | · | · |
-| srs | · | · | · | · | · | · | · | · | · | · |
-| pdr | ✓ | ✓ | · | · | ✓ | ✓ | ✓ | · | · | · |
-| prd | · | · | ✓ | · | · | · | · | · | · | · |
-| user-stories | · | · | · | · | · | · | · | · | · | · |
-| adr | ✓ | · | · | · | ✓ | ✓ | ✓ | · | · | · |
-| architecture | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| api | · | · | · | · | · | · | · | · | · | · |
-| uiux | · | · | ✓ | · | · | · | · | · | · | · |
-| schema | · | · | ✓ | ✓ | · | · | · | · | · | · |
-| erd | · | · | ✓ | ✓ | · | · | · | · | · | · |
-| setup | ✓ | ✓ | ✓ | · | · | ✓ | ✓ | · | · | · |
-| configurations | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| cicd | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| rtm | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| crm | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| quick-start | · | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · |
+| 文件 | build | gen | site | cfg | cicd.yml | dependabot.yml |
+|------|:--:|:--:|:--:|:--:|:--:|:--:|
+| toctree | · | · | · | · | · | · |
+| charter | · | · | · | · | ✓ | · |
+| srs | · | · | · | · | · | · |
+| pdr | ✓ | ✓ | · | · | ✓ | · |
+| prd | · | · | ✓ | · | · | · |
+| user-stories | · | · | · | · | · | · |
+| adr | ✓ | · | · | · | ✓ | · |
+| architecture | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| api | · | · | · | · | · | · |
+| uiux | · | · | ✓ | · | · | · |
+| schema | · | · | ✓ | ✓ | · | · |
+| erd | · | · | ✓ | ✓ | · | · |
+| setup | ✓ | ✓ | ✓ | · | ✓ | · |
+| configurations | ✓ | ✓ | · | ✓ | ✓ | ✓ |
+| cicd | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| rtm | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| crm | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| quick-start | · | · | ✓ | · | ✓ | · |
 
 ## 表二：文件 × 需求
 
