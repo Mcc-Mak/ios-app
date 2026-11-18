@@ -163,15 +163,21 @@ ipa_abs="$IPA_DIR/$ipa_name"
 [[ -f "$ipa_abs" ]] || die "IPA 壓縮失敗:$ipa_abs"
 
 # 驗證版面 — AltStore/Sideloadly 會拒絕 Payload/ 不在根目錄的 IPA。
+# 注意:不可寫成 `unzip -l ... | grep -q`,grep 命中即結束會讓 unzip 收到 SIGPIPE,
+# 在 `set -o pipefail` 下使管線回傳非零(即使確實找到),造成偶發誤判。
 log "驗證 IPA 版面…"
-if ! unzip -l "$ipa_abs" | grep -q "Payload/$app_basename/"; then
+ipa_listing="$ARCHIVE_DIR/ipa-listing.txt"
+if ! unzip -l "$ipa_abs" > "$ipa_listing"; then
+  die "無法列出 IPA 內容(unzip -l 失敗):$ipa_abs"
+fi
+if ! grep -q "Payload/$app_basename/" "$ipa_listing"; then
   die "IPA 版面檢查失敗:'Payload/$app_basename/' 不在 zip 根目錄。檢查:unzip -l \"$ipa_abs\""
 fi
 log "IPA 完成:$ipa_abs ($(du -h "$ipa_abs" | cut -f1))"
 
 # ---- 打包 dSYM----
 dsym_abs="$DSYM_DIR/$dsym_name"
-if [[ -d "$ARCHIVE_PATH/dSYMs" ]] && find "$ARCHIVE_PATH/dSYMs" -mindepth 1 -maxdepth 1 | grep -q .; then
+if [[ -d "$ARCHIVE_PATH/dSYMs" && -n "$(find "$ARCHIVE_PATH/dSYMs" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   ( cd "$ARCHIVE_PATH/dSYMs" && zip -r -q "$dsym_abs" . )
   log "dSYM 完成:$dsym_abs"
 else

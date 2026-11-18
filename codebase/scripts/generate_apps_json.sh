@@ -49,7 +49,9 @@ build_empty() {
 
 # ---- 最新發行版本(若存在)----
 release_json=""
-if gh release list --repo "$REPO" --limit 1 2>/dev/null | grep -q .; then
+# 先取值再判斷;`gh ... | grep -q` 會因 SIGPIPE + pipefail 偶發誤判。
+release_list=$(gh release list --repo "$REPO" --limit 1 2>/dev/null || true)
+if [[ -n "$release_list" ]]; then
   release_json=$(gh release view --repo "$REPO" --json tagName,name,publishedAt,body,assets 2>/dev/null || echo "")
 fi
 

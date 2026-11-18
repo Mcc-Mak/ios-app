@@ -9,6 +9,13 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v1.2.6] - 2026-11-18
+
+### 修正
+- **修正 IPA 版面驗證的偶發誤判:** `unzip -l "$ipa" | grep -q "Payload/..."` 在 `set -o pipefail` 下,`grep -q` 命中即結束會讓 `unzip` 收到 SIGPIPE,管線因此回傳非零 —— 即使確實找到 `Payload/`。CI 的建置 job 僥倖通過,CodeQL 的建置則在 `ARCHIVE SUCCEEDED` 後誤報「Payload 不在 zip 根目錄」。改為先把 `unzip -l` 輸出寫入檔案再 `grep`(無管線),並在 `unzip` 失敗時給出明確訊息。
+- **修正 dSYM 存在性檢查的同類問題:** `find ... | grep -q .` 改為 `find ... -print -quit`,避免同樣的 SIGPIPE 競態。
+- **修正 `generate_apps_json.sh` 的同類問題:** `gh release list ... | grep -q .` 改為先取值再以 `[[ -n ... ]]` 判斷,避免發布流程偶發誤判「找不到發行版本」。
+
 ## [v1.2.5] - 2026-11-18
 
 ### 修正
@@ -98,6 +105,7 @@
 
 > 註:v1.0.0 的實作成品位於儲存庫根目錄;v1.1.0 將其遷移至 `codebase/` 並調整工作流程參照路徑。
 
+[v1.2.6]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.6
 [v1.2.5]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.5
 [v1.2.4]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.4
 [v1.2.3]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.3
