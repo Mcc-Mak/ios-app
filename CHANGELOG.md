@@ -9,6 +9,17 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v1.2.4] - 2026-11-18
+
+### 修正
+- **修正 App 編譯錯誤(CI 測試與封存同時失敗的根因):**
+  - `ContentView.swift`:`SceneView.Options` 並無 `.antialiased` 成員,移除該選項;反鋸齒沿用 `SceneView` 預設的 `.multisampling4X`。
+  - `VoxelMeshBuilder.swift`:`SCNGeometrySource` 初始化參數標籤錯誤(`offset`/`stride` 應為 `dataOffset`/`dataStride`,且需以 `data:` 開頭)。改以扁平 `[Float]` 緩衝建立幾何來源,同時修正 `SCNVector3` 在 iOS 上 stride 為 16 bytes(非 12)造成的頂點資料佈局錯誤。
+- **修正攝影機未加入場景圖:** `FlyCameraController` 改為持有 `SCNScene`,並把 `cameraNode` 加入 `rootNode`;`pointOfView` 不在場景圖中將無法以此視角算圖。場景也不再於每次 `body` 求值時重建。
+- **修正 `@testable import` 可能失敗:** 於 App target 的 Debug 設定加入 `ENABLE_TESTABILITY = YES`(手寫專案未如 Xcode 範本預設開啟)。
+- **`Info.plist`:** 移除 `UIRequiredDeviceCapabilities`(當中的 `arm64` 可能使非 arm64 執行器的模擬器拒絕安裝),補上標準 `UIApplicationSceneManifest`,並簡化 `UILaunchScreen`。
+- 移除 `biomeColor` 未使用的 `topLayerIndex` 參數。
+
 ## [v1.2.3] - 2026-11-18
 
 ### 修正
@@ -80,6 +91,7 @@
 
 > 註:v1.0.0 的實作成品位於儲存庫根目錄;v1.1.0 將其遷移至 `codebase/` 並調整工作流程參照路徑。
 
+[v1.2.4]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.4
 [v1.2.3]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.3
 [v1.2.2]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.2
 [v1.2.1]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.1

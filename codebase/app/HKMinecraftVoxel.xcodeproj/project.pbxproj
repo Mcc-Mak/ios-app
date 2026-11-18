@@ -294,6 +294,7 @@
 				CODE_SIGNING_ALLOWED = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
+				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HKMinecraftVoxel/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

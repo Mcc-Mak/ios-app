@@ -13,11 +13,13 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 體素場景。
+            // 體素場景(由 controller 持有;攝影機節點已加入場景圖)。
+            // 反鋸齒沿用 SceneView 預設的 .multisampling4X;
+            // SceneView.Options 並沒有 .antialiased 成員。
             SceneView(
-                scene: VoxelSceneFactory.makeHongKongScene(),
+                scene: controller.scene,
                 pointOfView: controller.cameraNode,
-                options: [.allowsCameraControl, .autoenablesDefaultLighting, .antialiased]
+                options: [.autoenablesDefaultLighting]
             )
             .ignoresSafeArea()
 

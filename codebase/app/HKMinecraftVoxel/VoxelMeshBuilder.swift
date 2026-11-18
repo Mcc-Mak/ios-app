@@ -12,6 +12,7 @@
 
 import Foundation
 import SceneKit
+import UIKit
 import simd
 
 enum VoxelMeshBuilder {
@@ -33,7 +34,7 @@ enum VoxelMeshBuilder {
                 let h = data.height(atX: x, z: z)
                 let topVoxels = max(Int((h / s).rounded()), 1)
                 let topLayer = topVoxels - 1
-                let color = biomeColor(forHeight: h, topLayerIndex: topLayer)
+                let color = biomeColor(forHeight: h)
 
                 // 頂層體素(可見)。
                 let topY = baseY + s * (Float(topLayer) + 0.5)
@@ -79,7 +80,7 @@ enum VoxelMeshBuilder {
 
     // MARK: - 著色分帶
 
-    private static func biomeColor(forHeight h: Float, topLayerIndex: Int) -> SIMD3<Float> {
+    private static func biomeColor(forHeight h: Float) -> SIMD3<Float> {
         // 高度分帶(公尺):水/沙/草/岩/雪。
         switch h {
         case ..<5:    return SIMD3(0.85, 0.82, 0.55)   // 沙(海岸)
@@ -92,19 +93,19 @@ enum VoxelMeshBuilder {
 
     // MARK: - 幾何合併
 
-    /// 將多個 box 合併為單一 SCNGeometry,以顏色緩衝提供 per-voxel 著色。
+    /// 將多個 box 合併為單一 SCNGeometry,以頂點色緩衝提供 per-voxel 著色。
     private static func mergedBoxGeometry(
         boxes: [(center: SIMD3<Float>, size: SIMD3<Float>, color: SIMD3<Float>)]
     ) -> SCNGeometry {
-        // 每個 box = 6 面 × 4 頂點;SCN box 的 per-face 頂點以常數色。
-        // 為簡化,改用 SCNCapsule? 否 —— 以 SCNGeometrySource + Element 手建。
-        // 採六面 cuboid 手動鋪頂點,確保 per-voxel 顏色一致。
-        var positions: [SCNVector3] = []
-        var colors: [SCNVector3] = []
+        // 六面 cuboid 手動鋪頂點:每面 4 個獨立頂點,避免法線/顏色共用造成接縫。
+        // 以扁平 [Float] 存放,確保資料佈局(stride = 3 × 4 bytes)與
+        // SCNGeometrySource 的宣告一致;SCNVector3 的 stride 為 16 bytes,不可直接使用。
+        var positions: [Float] = []
+        var colors: [Float] = []
         var indices: [Int32] = []
 
         // 立方體 8 角(以中心 + 半尺寸)。
-        let half = SIMD2<Float>(0.5, 0.5)
+        let half: Float = 0.5
         // 六面索引(每面 4 角,逆時針)。
         let faces: [(Int, Int, Int, Int)] = [
             (0, 1, 2, 3), // +X
@@ -116,9 +117,9 @@ enum VoxelMeshBuilder {
         ]
 
         for b in boxes {
-            let hx = b.size.x * half.x
-            let hy = b.size.y * half.x
-            let hz = b.size.z * half.y   // half.y 未使用,對稱取 0.5
+            let hx = b.size.x * half
+            let hy = b.size.y * half
+            let hz = b.size.z * half
             let c = b.center
 
             // 8 角。
@@ -133,42 +134,23 @@ enum VoxelMeshBuilder {
                 SIMD3(c.x - hx, c.y + hy, c.z + hz), // 7
             ]
 
-            let baseIdx = Int32(positions.count)
             // 每面用 4 個獨立頂點(避免法線/顏色共用造成的縫),並加入顏色。
             for f in faces {
+                let base = Int32(positions.count / 3)
                 let v0 = corners[f.0], v1 = corners[f.1], v2 = corners[f.2], v3 = corners[f.3]
-                positions.append(SCNVector3(v0.x, v0.y, v0.z))
-                positions.append(SCNVector3(v1.x, v1.y, v1.z))
-                positions.append(SCNVector3(v2.x, v2.y, v2.z))
-                positions.append(SCNVector3(v3.x, v3.y, v3.z))
+                positions.append(contentsOf: [v0.x, v0.y, v0.z])
+                positions.append(contentsOf: [v1.x, v1.y, v1.z])
+                positions.append(contentsOf: [v2.x, v2.y, v2.z])
+                positions.append(contentsOf: [v3.x, v3.y, v3.z])
                 for _ in 0..<4 {
-                    colors.append(SCNVector3(b.color.x, b.color.y, b.color.z))
+                    colors.append(contentsOf: [b.color.x, b.color.y, b.color.z])
                 }
-                let s = baseIdx + Int32(positions.count) - 4
-                indices.append(contentsOf: [s, s + 1, s + 2, s, s + 2, s + 3])
+                indices.append(contentsOf: [base, base + 1, base + 2, base, base + 2, base + 3])
             }
         }
 
-        let posSource = SCNGeometrySource(
-            semantic: .vertex,
-            vectorCount: positions.count,
-            usesFloatComponents: true,
-            componentsPerVector: 3,
-            bytesPerComponent: MemoryLayout<SCNVector3>.stride / 3,
-            offset: 0,
-            stride: MemoryLayout<SCNVector3>.stride,
-            data: Data(bytes: positions, count: positions.count * MemoryLayout<SCNVector3>.stride)
-        )
-        let colSource = SCNGeometrySource(
-            semantic: .color,
-            vectorCount: colors.count,
-            usesFloatComponents: true,
-            componentsPerVector: 3,
-            bytesPerComponent: MemoryLayout<SCNVector3>.stride / 3,
-            offset: 0,
-            stride: MemoryLayout<SCNVector3>.stride,
-            data: Data(bytes: colors, count: colors.count * MemoryLayout<SCNVector3>.stride)
-        )
+        let posSource = geometrySource(positions, semantic: .vertex)
+        let colSource = geometrySource(colors, semantic: .color)
 
         let element = SCNGeometryElement(
             indices: indices,
@@ -176,5 +158,26 @@ enum VoxelMeshBuilder {
         )
 
         return SCNGeometry(sources: [posSource, colSource], elements: [element])
+    }
+
+    /// 由扁平 Float 緩衝建立 3 分量浮點幾何來源。
+    /// - Parameters:
+    ///   - values: 連續的 xyz 分量
+    ///   - semantic: `.vertex` 或 `.color`
+    private static func geometrySource(
+        _ values: [Float],
+        semantic: SCNGeometrySource.Semantic
+    ) -> SCNGeometrySource {
+        let data = values.withUnsafeBufferPointer { Data(buffer: $0) }
+        return SCNGeometrySource(
+            data: data,
+            semantic: semantic,
+            vectorCount: values.count / 3,
+            usesFloatComponents: true,
+            componentsPerVector: 3,
+            bytesPerComponent: MemoryLayout<Float>.size,
+            dataOffset: 0,
+            dataStride: MemoryLayout<Float>.size * 3
+        )
     }
 }

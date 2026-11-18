@@ -2,20 +2,22 @@
 //  FlyCameraController.swift
 //  HKMinecraftVoxel
 //
-//  飛行攝影機:環繞香港地形上空,可由使用者在 SceneView 中拖曳/縮放
-//  (.allowsCameraControl)。此 controller 提供一個自動巡航的起始視角與
-//  HUD 顯示的狀態。
+//  飛行攝影機:環繞香港地形上空自動巡航,可由 HUD 暫停/繼續。
+//  此 controller 持有場景與攝影機節點,並提供 HUD 顯示的狀態。
 //
 
 import Foundation
 import SceneKit
 import SwiftUI
+import UIKit
 
 final class FlyCameraController: ObservableObject {
 
     @Published var altitude: Float = 380
     @Published var orbiting: Bool = true
 
+    /// 由 controller 持有的場景(攝影機節點已加入 scene graph)。
+    let scene: SCNScene
     let cameraNode: SCNNode
 
     private var displayLink: CADisplayLink?
@@ -24,10 +26,13 @@ final class FlyCameraController: ObservableObject {
     private let orbitRadius: Float = 1400
 
     init() {
+        scene = VoxelSceneFactory.makeHongKongScene()
         cameraNode = SCNNode()
         cameraNode.camera = SCNCamera()
         cameraNode.camera?.fieldOfView = 60
         cameraNode.camera?.zFar = 6000
+        // SceneKit 要求 pointOfView 必須位於場景圖中,否則不會以此視角算圖。
+        scene.rootNode.addChildNode(cameraNode)
         applyPose()
     }
 
