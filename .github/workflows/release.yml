@@ -1,0 +1,74 @@
+# release.yml — 於語意化版本標籤(v*)時,建置未簽署 IPA、建立 GitHub Release
+# (附 .ipa + .dSYM + manifest.json),再觸發 pages.yml 更新饋流。
+# 零 Apple 機密;僅使用 GITHUB_TOKEN。
+name: 發行版本
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # 建立發行版本 + 上傳資產
+  actions: write    # 觸發 pages.yml
+
+jobs:
+  release:
+    name: 建置並發行版本
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 選擇 Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: 設定腳本為可執行
+        run: chmod +x codebase/scripts/*.sh
+
+      - name: 建置並打包未簽署 IPA
+        id: build
+        run: ./codebase/scripts/build_unsigned_ipa.sh
+
+      - name: 讀取 manifest
+        id: manifest
+        run: |
+          set -euo pipefail
+          m="build/ipa/manifest.json"
+          echo "app-name=$(jq -r '.appName' "$m")"           >> "$GITHUB_OUTPUT"
+          echo "app-version=$(jq -r '.version' "$m")"        >> "$GITHUB_OUTPUT"
+          echo "bundle-id=$(jq -r '.bundleIdentifier' "$m")" >> "$GITHUB_OUTPUT"
+
+      - name: 建立 GitHub Release 並附加檔案
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          app="${{ steps.manifest.outputs.app-name }}"
+          ver="${{ steps.manifest.outputs.app-version }}"
+          # 發行說明:標籤 + 自動產生的變更記錄。
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "發行版本 $tag 已存在,將檔案上傳至該版本。"
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$app $ver" \
+              --generate-notes \
+              --verify-tag
+          fi
+          gh release upload "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            build/ipa/*.ipa build/ipa/manifest.json build/dsym/*.dSYM.zip \
+            --clobber
+
+      - name: 觸發 Pages 重建(重新產生 apps.json)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # 在 main 上重新執行 pages.yml,使其將最新發行版本拉入 apps.json。
+          gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main || \
+            echo "::warning::無法觸發 pages.yml(可能尚不存在)。"

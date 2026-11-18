@@ -1,0 +1,10 @@
+{
+  "name": "HK Minecraft 來源",
+  "subtitle": "免費 Apple ID 側載來源",
+  "description": "香港體素飛覽 App —— 以 SceneKit + Metal 在 iPhone 上以 Minecraft 體素風格呈現香港地形(太平山、大帽山、鳳凰山等),地形資料可插拔(程序化或 HK CSDI DEM)。透過 AltStore、SideStore 或 Sideloadly 使用免費 Apple ID 側載。無需付費開發者帳號。",
+  "website": "https://github.com/Mcc-Mak/ios-app",
+  "iconURL": "",
+  "appName": "HKMinecraftVoxel",
+  "bundleIdentifier": "com.mccmak.hkminecraftvoxel",
+  "developerName": "Mcc-Mak"
+}

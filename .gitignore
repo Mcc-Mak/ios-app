@@ -1,0 +1,24 @@
+# 建置產物(不提交)
+build/
+DerivedData/
+*.xcarchive
+Payload/
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcresult
+_site/
+
+# Xcode 使用者狀態
+xcuserdata/
+*.xcuserstate
+*.swp
+.DS_Store
+
+# SPM / Carthage / Pods
+.build/
+Carthage/
+Pods/
+
+# 本機工具
+*.log

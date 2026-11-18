@@ -1,0 +1,39 @@
+# SwiftLint 設定(適用於 ios-app)。
+# 收緊預設值;隨程式碼成長再調整 opt-in 規則。
+disabled_rules:
+  - trailing_whitespace
+
+opt_in_rules:
+  - empty_count
+  - empty_string
+  - first_where
+  - last_where
+  - operator_usage_whitespace
+  - sorted_first_last
+  - toggle_bool
+
+included:
+  - .
+
+excluded:
+  - Pods
+  - Carthage
+  - .build
+  - DerivedData
+  - build
+
+line_length:
+  warning: 140
+  error: 200
+
+type_body_length:
+  warning: 400
+  error: 600
+
+file_length:
+  warning: 600
+  error: 1000
+
+identifier_name:
+  min_length: 1
+  max_length: 50

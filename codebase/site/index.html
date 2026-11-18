@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ios-app — 側載入口網站</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>HK Minecraft</h1>
+      <p class="tagline">香港體素飛覽 —— 以 Minecraft 風格呈現香港地形,使用免費 Apple ID 側載。</p>
+    </header>
+
+    <section class="card" id="install">
+      <h2>安裝</h2>
+      <div id="latest" class="latest">
+        <p><span class="muted">最新版本:</span> <span id="version">…</span></p>
+        <p class="muted small" id="meta"></p>
+        <a id="download" class="btn primary" href="#" rel="noopener">下載 .ipa</a>
+      </div>
+      <p class="muted small">無需付費 Apple 開發者計畫、憑證或描述檔。</p>
+    </section>
+
+    <section class="card">
+      <h2>加入 AltStore / SideStore</h2>
+      <p>加入此來源 URL,即可直接從 AltStore/SideStore 安裝並更新 App:</p>
+      <code id="source-url">https://mcc-mak.github.io/ios-app/apps.json</code>
+      <p class="muted small">設定 → 來源 → 點擊「+」→ 貼上上述 URL。</p>
+    </section>
+
+    <section class="card">
+      <h2>手動側載</h2>
+      <ul>
+        <li><a href="https://github.com/Mcc-Mak/ios-app#透過-sideloadly-側載" rel="noopener">Sideloadly 步驟</a></li>
+        <li><a href="https://github.com/Mcc-Mak/ios-app#加入-altstoresidestore" rel="noopener">AltStore / SideStore 步驟</a></li>
+        <li><a href="https://github.com/Mcc-Mak/ios-app#7-天免費-apple-id-憑證更新週期" rel="noopener">7 天免費 Apple ID 憑證更新週期</a></li>
+      </ul>
+    </section>
+
+    <footer>
+      <a href="https://github.com/Mcc-Mak/ios-app/releases" rel="noopener">所有發行版本</a>
+      <span class="sep">·</span>
+      <a href="https://github.com/Mcc-Mak/ios-app" rel="noopener">原始碼</a>
+    </footer>
+  </main>
+
+  <script>
+    // 從 AltStore/SideStore 饋流(apps.json)渲染最新發行版本。
+    (async function () {
+      const versionEl = document.getElementById('version');
+      const downloadEl = document.getElementById('download');
+      const metaEl = document.getElementById('meta');
+
+      try {
+        const res = await fetch('apps.json', { cache: 'no-store' });
+        if (!res.ok) throw new Error('apps.json ' + res.status);
+        const feed = await res.json();
+        const app = (feed.apps || [])[0];
+
+        if (!app) {
+          versionEl.textContent = '尚無';
+          downloadEl.classList.add('disabled');
+          downloadEl.textContent = '尚無發行版本';
+          metaEl.textContent = '第一個發行版本將自動顯示於此。';
+          return;
+        }
+
+        versionEl.textContent = app.version || '—';
+        downloadEl.href = app.downloadURL || '#';
+        const size = app.size ? (app.size / 1048576).toFixed(1) + ' MB' : '';
+        const date = app.versionDate ? new Date(app.versionDate).toLocaleDateString() : '';
+        metaEl.textContent = [size, date].filter(Boolean).join(' · ');
+      } catch (e) {
+        versionEl.textContent = '無法取得';
+        downloadEl.classList.add('disabled');
+        downloadEl.textContent = '饋流無法取得';
+        console.error(e);
+      }
+    })();
+  </script>
+</body>
+</html>

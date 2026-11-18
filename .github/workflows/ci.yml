@@ -1,0 +1,118 @@
+# ci.yml — 測試(iOS 模擬器,未簽署)+ 建置未簽署 IPA + 上傳成品。
+# 於 push/PR 至 main 時觸發。零 Apple 機密;僅使用 GITHUB_TOKEN。
+name: CI(測試 + 建置未簽署 IPA)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 取消同一 ref 上被取代的舊執行。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 測試(iOS 模擬器,未簽署)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 選擇 Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: 設定腳本為可執行
+        run: chmod +x codebase/scripts/*.sh
+
+      - name: 探索專案與 scheme
+        id: discover
+        run: |
+          set -euo pipefail
+          project=$(find . -maxdepth 4 -name "*.xcodeproj" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" | head -n1 || true)
+          workspace=$(find . -maxdepth 4 -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" -not -path "*/.xcodeproj/project.xcworkspace" | head -n1 || true)
+          args=()
+          if [[ -n "$workspace" ]]; then args=(-workspace "$workspace"); else args=(-project "$project"); fi
+          scheme=$(xcodebuild -list "${args[@]}" 2>/dev/null | awk '/Schemes:/{f=1;next} f&&/^$/{f=0} f{print}' | sed '/^[[:space:]]*$/d' | head -n1 || true)
+          echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
+          echo "已探索 scheme:$scheme"
+
+      - name: 執行單元與 UI 測試(未簽署)
+        if: steps.discover.outputs.scheme != ''
+        run: |
+          set -euo pipefail
+          project=$(find . -maxdepth 4 -name "*.xcodeproj" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" | head -n1 || true)
+          workspace=$(find . -maxdepth 4 -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" -not -path "*/.xcodeproj/project.xcworkspace" | head -n1 || true)
+          args=()
+          if [[ -n "$workspace" ]]; then args=(-workspace "$workspace"); else args=(-project "$project"); fi
+          xcodebuild test "${args[@]}" \
+            -scheme "${{ steps.discover.outputs.scheme }}" \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -enableCodeCoverage YES \
+            -resultBundlePath build/Test.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""
+
+      - name: 匯出程式碼覆蓋率報告
+        if: always() && steps.discover.outputs.scheme != ''
+        run: |
+          mkdir -p build/reports
+          if [[ -d build/Test.xcresult ]]; then
+            xcrun xccov view --report --json build/Test.xcresult > build/reports/coverage.json 2>/dev/null || true
+            xcrun xccov view --report build/Test.xcresult > build/reports/coverage.txt 2>/dev/null || true
+          fi
+
+      - name: 上傳測試結果與覆蓋率
+        if: always() && steps.discover.outputs.scheme != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            build/Test.xcresult
+            build/reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  build-ipa:
+    name: 建置未簽署 IPA
+    runs-on: macos-latest
+    # 即使測試被略過(尚無 scheme)仍建置,確保 IPA 成品永遠產生。
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 選擇 Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: 設定腳本為可執行
+        run: chmod +x codebase/scripts/*.sh
+
+      - name: 建置並打包未簽署 IPA
+        id: build
+        run: ./codebase/scripts/build_unsigned_ipa.sh
+
+      - name: 上傳未簽署 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: |
+            build/ipa/*.ipa
+            build/ipa/manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 上傳 dSYM 符號檔
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsym
+          path: build/dsym/*.dSYM.zip
+          if-no-files-found: ignore
+          retention-days: 30
