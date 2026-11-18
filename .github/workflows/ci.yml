@@ -52,9 +52,14 @@ jobs:
           workspace=$(find . -maxdepth 4 -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" -not -path "*/.xcodeproj/project.xcworkspace" | head -n1 || true)
           args=()
           if [[ -n "$workspace" ]]; then args=(-workspace "$workspace"); else args=(-project "$project"); fi
+          # 動態選取可用 iPhone 模擬器(避免特定機型名稱在不同 Xcode 版本不存在)。
+          sim_udid=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin); print(next((dev['udid'] for rt,devs in d['devices'].items() for dev in devs if 'iPhone' in dev.get('name','') and dev.get('isAvailable')), ''))")
+          [[ -n "$sim_udid" ]] || { echo "::error::找不到可用 iPhone 模擬器"; exit 1; }
+          echo "使用模擬器 UDID:$sim_udid"
+          xcrun simctl boot "$sim_udid" 2>/dev/null || true
           xcodebuild test "${args[@]}" \
             -scheme "${{ steps.discover.outputs.scheme }}" \
-            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -destination "id=$sim_udid" \
             -enableCodeCoverage YES \
             -resultBundlePath build/Test.xcresult \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""

@@ -9,6 +9,12 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v1.2.3] - 2026-11-18
+
+### 修正
+- **修正模擬器目的地找不到裝置:** 原 `-destination 'platform=iOS Simulator,name=iPhone 15,OS=latest'` 在 Xcode 26.6 runner(僅有 iPhone 17e 等新機型)上失敗。改為動態探勘可用 iPhone 模擬器 UDID(`xcrun simctl list` + python3 解析),以 `-destination "id=$sim_udid"` 指定,跨 Xcode 版本皆適用。
+- **修正 `Localizable.strings` 格式:** 原以 JSON 撰寫,但 `.strings` 需 NeXTstep plist 格式(`"key" = "value";`),JSON 僅適用 `.xcstrings`。改為正確格式,解決 `CopyStringsFile` / `validation failed` 封存錯誤。
+
 ## [v1.2.2] - 2026-11-18
 
 ### 修正
@@ -74,6 +80,7 @@
 
 > 註:v1.0.0 的實作成品位於儲存庫根目錄;v1.1.0 將其遷移至 `codebase/` 並調整工作流程參照路徑。
 
+[v1.2.3]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.3
 [v1.2.2]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.2
 [v1.2.1]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.1
 [v1.2.0]: https://github.com/Mcc-Mak/ios-app/releases/tag/v1.2.0
