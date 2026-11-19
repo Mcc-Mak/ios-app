@@ -200,9 +200,12 @@ echo ""
 echo "─── 階段 2:xcodebuild archive(未簽署)───"
 
 # 偵測 scheme
+# Tuanjie 匯出產生 Tuanjie-iPhone.xcscheme;Unity 匯出產生 Unity-iPhone.xcscheme
 SCHEMES=$(xcodebuild -list -project "$XCODEPROJ" 2>/dev/null | grep -A20 "Schemes:" | grep -E "^\s+\S" | head -n1 | tr -d ' ')
 if [[ -z "$SCHEMES" ]]; then
-  SCHEMES="Unity-iPhone"  # Unity 預設 scheme 名稱
+  # 依 .xcodeproj 名稱推斷(Tuanjie-iPhone.xcodeproj → Tuanjie-iPhone)
+  SCHEMES=$(basename "$XCODEPROJ" .xcodeproj)
+  echo "::warning::無法以 xcodebuild -list 偵測 scheme,改用 .xcodeproj 名稱推斷: $SCHEMES"
 fi
 echo "Scheme: $SCHEMES"
 
