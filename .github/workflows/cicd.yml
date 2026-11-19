@@ -216,24 +216,20 @@ jobs:
           set -euo pipefail
           # Tuanjie 2022.3 的 IL2CPP 為 .NET 應用程式,在無 TTY 的 CI 管道環境下,
           # System.ConsolePal 靜態建構式崩潰(OutOfMemoryException:
-          # Array dimensions exceeded supported range)。
-          # 解法:將 IL2CPP 二進位檔重新命名為 .real,建立 wrapper 腳本以
-          # /usr/bin/script(1) 提供 pseudo-TTY。IL2CPP 及其子行程繼承 PTY,
-          # .NET ConsolePal 偵測到 TTY 後走正常初始化路徑。
+          # Array dimensions exceeded supported range)。原因:.NET 嘗試
+          # ioctl(TIOCGWINSZ) 查詢終端尺寸,在管道環境下失敗並使用垃圾值配置陣列。
+          # macOS BSD script(1) 雖提供 PTY 但不保證有效視窗尺寸(可能 0x0),
+          # 改用 Python pty.spawn + 顯式 ioctl(TIOCSWINSZ) 設定 24x80。
           #
-          # 注意:tarball 在 Windows 上建立,不保留 Unix 執行位元,故需明確
-          # chmod +x il2cpp.real(建置階段腳本只 chmod $IL2CPP = wrapper)。
+          # 注意:tarball 在 Windows 建立,不保留 Unix 執行位元,故需 chmod +x。
           for arch in deploy_arm64 deploy_x86_64; do
             il2cpp_dir="build/ios-xcode/Il2CppOutputProject/IL2CPP/build/$arch"
             if [[ -f "$il2cpp_dir/il2cpp" && ! -f "$il2cpp_dir/il2cpp.real" ]]; then
               mv "$il2cpp_dir/il2cpp" "$il2cpp_dir/il2cpp.real"
               chmod +x "$il2cpp_dir/il2cpp.real"
-              cat > "$il2cpp_dir/il2cpp" << 'WRAPPER'
-          #!/bin/sh
-          exec /usr/bin/script -q /dev/null "$(dirname "$0")/il2cpp.real" "$@"
-          WRAPPER
+              cp codebase/scripts/il2cpp_pty_wrapper.sh "$il2cpp_dir/il2cpp"
               chmod +x "$il2cpp_dir/il2cpp"
-              echo "✅ 已以 pseudo-TTY wrapper 包裹 $arch/il2cpp"
+              echo "✅ 已以 Python PTY wrapper(24x80 視窗尺寸)包裹 $arch/il2cpp"
             fi
           done
 
