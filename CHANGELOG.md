@@ -9,6 +9,33 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.0.0] - 2026-11-19
+
+### 重大變更
+- **架構轉向:Swift/SceneKit → Unity 6 LTS + 分塊 GLB 串流。** 使用者要求以真實 CSDI 攝影測量網格呈現全圖幅(1.7 GB OSGB),並以執行時分塊串流在行動裝置載入。Swift/SceneKit 方案(ADR-007)與打包單一 GLB 方案(ADR-008)已由 **ADR-009** 取代。原 `codebase/app/HKMinecraftVoxel/` Swift 專案將由 `codebase/unity-project/`(Unity 6 LTS)取代;Stage B/C 待 Unity 安裝後實作。
+- **CI 放寬零機密前提:** 為 Unity 建置引入 Unity 授權檔(`.ulf`)作為 GitHub Actions secret(見 **ADR-010**,放寬 ADR-006)。Apple 簽署機密仍維持零(沿用 ADR-001 未簽署側載)。Fork 需自行設定 `UNITY_LICENSE` 才能執行 Unity 建置 job。
+
+### 新增
+- **Stage A:OSGB → 分塊 GLB 轉換器(`codebase/converter/`)。** 三階段管線的第一階段,純 Python,Unity 無關:
+  - `convert_osgb_to_chunks.py` — 將單一 CSDI OSGB 圖幅(PagedLOD 四元樹)轉為空間分塊 GLB。流程:`osgconv`(OSGB→OBJ+紋理)→ `pymeshlab` 的 `meshing_decimation_quadric_edge_collapse_with_texture`(**保留 UV/紋理**)→ `trimesh`(置中、紋理降解析、GLB 匯出)。每個 CSDI 子圖幅(`Tile_+X_+Y`)= 一個 `.glb` 分塊。無寫死路徑,所有路徑經 CLI/環境變數傳入。
+  - `validate_chunks.py` — 硬性大小閘道:任一 `.glb` > 10 MB 或總和 > 200 MB 即非零退出,供 CI gate 使用。同時驗證 manifest 欄位完整性與檔案存在性。
+  - `requirements.txt` — Python 相依(pymeshlab、trimesh、Pillow、numpy、py7zr)。**移除 pyfqmr**(經實測會丟失 UV,無法用於紋理網格)。
+  - `README.md` — Stage A 完整文件:工具安裝(osgconv、pymeshlab)、CLI 用法、manifest schema、座標系(EPSG:2326 置中)、pymeshlab vs pyfqmr 對照、疑難排解。
+- **manifest.json schema:** 每分塊記錄 `id`、`grid_x`/`grid_y`、`bbox_min`/`bbox_max`/`centroid`(本地座標,已相對全圖幅 origin 置中)、`file`、`bytes`、`triangles`、`neighbors`(相鄰子圖幅 id)、`priority`。圖幅級中繼資料:`source`、`crs`、`origin`(HK 1980 Grid 公尺)、`tileSize`、`gridCols`/`gridRows`、`totalBytes`、`totalTriangles`、`attribution`(© 香港特別行政區地政總署)。
+- **ADR-009:** 記錄「遷移 Unity 6 LTS + 分塊 GLB 串流」決策(取代 ADR-007 與 ADR-008)。
+- **ADR-010:** 記錄「引入 Unity 授權檔作為 CI secret」決策(放寬 ADR-006,僅限 Unity 引擎授權;Apple 機密仍零容忍)。
+
+### 驗證(Stage A,11-NW-19B 旺角圖幅)
+- 20 個分塊(5×4 子圖幅網格),全部保留紋理(密集區 9–14 張貼圖/塊,稀疏區 1 張/塊)。
+- 總大小 **36.24 MB** / 200 MB 預算(82% 餘裕);最大分塊 **4.52 MB** / 10 MB 預算。
+- 總三角面 637,565;座標系 EPSG:2326 已置中至圖幅中心 `[35625.42, 20100.076, 119.955]`。
+- `validate_chunks.py` 硬性閘道通過(退出碼 0)。
+
+### 變更
+- **ADR-006:** 狀態由「已接受」改為「已接受(ADR-010 部分放寬)」,註明 Unity 授權機密的引入範圍。
+- **ADR-007:** 狀態由「已接受」改為「已取代(由 ADR-009 取代)」。
+- **ADR-008:** 狀態由「已接受」改為「已取代(由 ADR-009 取代)」,註明 pyfqmr 丟失 UV 的缺陷已由 pymeshlab 修正。
+
 ## [v1.4.0] - 2026-11-19
 
 ### 新增

@@ -1,0 +1,4 @@
+# 此目錄保留給 Unity 6 LTS 專案(Stage B/C)。
+# 目前為空:待使用者安裝 Unity Hub + Unity 6 LTS + iOS Build Support 模組後,
+# 以 `unity-project/` 為 Unity 專案根目錄建立專案。
+# 詳見 ../../docbase/adr.md ADR-009 與 ../../codebase/converter/README.md。

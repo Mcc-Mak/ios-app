@@ -1,0 +1,5 @@
+trimesh>=5.2
+pymeshlab>=2023.12
+Pillow>=10.0
+numpy>=2.0
+py7zr>=1.0

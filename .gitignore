@@ -22,3 +22,49 @@ Pods/
 
 # 本機工具
 *.log
+
+# Stage A 轉換器產物(不提交;轉換輸出應放在本機或 CI 工作區)
+# 分塊輸出目錄通常名為 *_chunks*、chunks_out 等
+*_chunks*/
+chunks_out/
+*_osgb_extract/
+# 轉換器工作目錄
+_work/
+_tmp_*/
+# 任何 .glb / manifest.json 若落在儲存庫內一律忽略(應由轉換器產生於輸出目錄)
+/*.glb
+/*.gltf
+/manifest.json
+# osgconv/pyfkml 測試產出的紋理(防漏到根目錄)
+/11-NW-*.jpg
+/Tile_*.jpg
+/Tile_*.png
+# OSGB 來源檔(1.7 GB+,永不提交)
+*.osgb
+*.osgb.zip
+*.osgb.7z
+
+# Unity 專案產物(Stage B/C)
+codebase/unity-project/Library/
+codebase/unity-project/Temp/
+codebase/unity-project/Obj/
+codebase/unity-project/Build/
+codebase/unity-project/Builds/
+codebase/unity-project/Logs/
+codebase/unity-project/UserSettings/
+codebase/unity-project/MemoryCaptures/
+codebase/unity-project/Recordings/
+# Unity 自動產生的解決方案/專案檔(由 Unity 重新產生)
+codebase/unity-project/*.csproj
+codebase/unity-project/*.sln
+codebase/unity-project/*.unityproj
+codebase/unity-project/*.user
+codebase/unity-project/.vs/
+codebase/unity-project/.vsconfig
+# Unity Xcode 匯出(Stage C,由建置產生)
+codebase/unity-project/Unity-iPhone/
+codebase/unity-project/export/
+# Unity .ulf 授權檔(機密,永不提交)
+*.ulf
+*.ulf.txt
+Unity_v*.ulf
