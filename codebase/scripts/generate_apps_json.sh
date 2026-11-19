@@ -48,11 +48,16 @@ build_empty() {
 }
 
 # ---- 最新發行版本(若存在)----
+# 僅考慮 v* 標籤的發行版本(實際 App 發行)。
+# 儲存庫中亦有 xcode-export-*(Xcode 專案 tarball)與 data-*(分塊資料)
+# 發行版本,這些不含 .ipa,不應出現在饋流中。
 release_json=""
 # 先取值再判斷;`gh ... | grep -q` 會因 SIGPIPE + pipefail 偶發誤判。
-release_list=$(gh release list --repo "$REPO" --limit 1 2>/dev/null || true)
+# --exclude-drafts 確保只看已發行版本;--json tagName 取標籤再過濾 v*。
+release_list=$(gh release list --repo "$REPO" --exclude-drafts --json tagName,createdAt \
+  --jq '[.[] | select(.tagName | startswith("v"))] | sort_by(.createdAt) | reverse | .[0].tagName // empty' 2>/dev/null || true)
 if [[ -n "$release_list" ]]; then
-  release_json=$(gh release view --repo "$REPO" --json tagName,name,publishedAt,body,assets 2>/dev/null || echo "")
+  release_json=$(gh release view "$release_list" --repo "$REPO" --json tagName,name,publishedAt,body,assets 2>/dev/null || echo "")
 fi
 
 if [[ -z "$release_json" ]]; then
@@ -64,6 +69,8 @@ fi
 tag=$(printf '%s' "$release_json"      | jq -r '.tagName')
 published=$(printf '%s' "$release_json" | jq -r '.publishedAt // ""')
 body=$(printf '%s' "$release_json"     | jq -r '.body // ""')
+
+log "選取最新 v* 發行版本: $tag"
 
 ipa_asset=$(printf '%s' "$release_json" | jq -r '.assets[] | select(.name | endswith(".ipa")) | .name' | head -n1 || true)
 if [[ -z "$ipa_asset" ]]; then
