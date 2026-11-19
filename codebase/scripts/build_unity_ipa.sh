@@ -230,19 +230,8 @@ UNSIGNED_FLAGS=(
   CODE_SIGN_ENTITLEMENTS=""
 )
 
-# macOS 的 IL2CPP 為 .NET 應用程式,在無 TTY 的 CI 管道環境下,
-# System.ConsolePal 靜態建構式會崩潰(OutOfMemoryException:
-# Array dimensions exceeded supported range — .NET 6 在 macOS 14+ 的已知問題)。
-# 以 /usr/bin/script 提供 pseudo-TTY 可避免此問題(IL2CPP 及其子行程
-# 繼承 PTY,.NET ConsolePal 偵測到 TTY 後走正常初始化路徑)。
-XCODEBUILD_WRAPPER=()
-if [[ -x /usr/bin/script ]]; then
-  XCODEBUILD_WRAPPER=(/usr/bin/script -q /dev/null)
-  echo "以 script 提供 pseudo-TTY(避免 IL2CPP .NET ConsolePal 崩潰)"
-fi
-
 rm -rf "$ARCHIVE_PATH"
-"${XCODEBUILD_WRAPPER[@]}" xcodebuild archive \
+xcodebuild archive \
   -project "$XCODEPROJ" \
   -scheme "$SCHEMES" \
   -configuration Release \
