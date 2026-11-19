@@ -63,8 +63,11 @@ if (-not (Test-Path $TuanjieEditor)) {
 $IosModule = "C:\Program Files\Tuanjie 2022.3.61t15\Editor\Data\PlaybackEngines\iossupport"
 if (-not (Test-Path $IosModule)) {
     Write-Warning "⚠ 找不到 iOS Build Support 模組($IosModule)"
-    Write-Warning "  請透過 Tuanjie Hub 安裝:iOS Build Support(约 2-5 GB 下載)"
-    Write-Warning "  路徑:Tuanjie Hub → Installs → 2022.3.61t15 → Add Modules → iOS Build Support"
+    Write-Warning "  Tuanjie Hub 可能無法偵測此 Editor 安裝(掃描路徑不同)。"
+    Write-Warning "  直接下載模組安裝器並以 /S /D=<Editor 根目錄> 靜默安裝:"
+    Write-Warning "    https://download.tuanjie.cn/download_tuanjie/08f812df7f0b/TargetSupportInstaller/TuanjieSetup-iOS-Support-for-Editor-2022.3.61t15.exe"
+    Write-Warning "  安裝指令(管理員 PowerShell):"
+    Write-Warning "    & 'TuanjieSetup-iOS-Support-for-Editor-2022.3.61t15.exe' /S /D='C:\Program Files\Tuanjie 2022.3.61t15'"
     $confirm = Read-Host "是否仍要繼續?(y/N)"
     if ($confirm -ne "y") { exit 1 }
 }
