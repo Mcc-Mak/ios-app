@@ -220,10 +220,14 @@ jobs:
           # 解法:將 IL2CPP 二進位檔重新命名為 .real,建立 wrapper 腳本以
           # /usr/bin/script(1) 提供 pseudo-TTY。IL2CPP 及其子行程繼承 PTY,
           # .NET ConsolePal 偵測到 TTY 後走正常初始化路徑。
+          #
+          # 注意:tarball 在 Windows 上建立,不保留 Unix 執行位元,故需明確
+          # chmod +x il2cpp.real(建置階段腳本只 chmod $IL2CPP = wrapper)。
           for arch in deploy_arm64 deploy_x86_64; do
             il2cpp_dir="build/ios-xcode/Il2CppOutputProject/IL2CPP/build/$arch"
             if [[ -f "$il2cpp_dir/il2cpp" && ! -f "$il2cpp_dir/il2cpp.real" ]]; then
               mv "$il2cpp_dir/il2cpp" "$il2cpp_dir/il2cpp.real"
+              chmod +x "$il2cpp_dir/il2cpp.real"
               cat > "$il2cpp_dir/il2cpp" << 'WRAPPER'
           #!/bin/sh
           exec /usr/bin/script -q /dev/null "$(dirname "$0")/il2cpp.real" "$@"
