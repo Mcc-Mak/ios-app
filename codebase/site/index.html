@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HK Minecraft — 側載入口網站</title>
-  <meta name="description" content="香港體素飛覽 App 的免費 Apple ID 側載入口:下載未簽署 IPA、加入 AltStore/SideStore 來源,並提供 Sideloadly、Xcode 與 GitHub Actions 的完整安裝步驟。">
+  <title>HK 3D 網格 — 側載入口網站</title>
+  <meta name="description" content="香港 3D 攝影測量飛覽 App 的免費 Apple ID 側載入口:下載未簽署 IPA、加入 AltStore/SideStore 來源,並提供 Sideloadly、Xcode 與 GitHub Actions 的完整安裝步驟。">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
     <header id="top">
-      <h1>HK Minecraft</h1>
-      <p class="tagline">香港體素飛覽 —— 以 Minecraft 方塊風格呈現香港地形,使用<strong>免費 Apple ID</strong> 側載。</p>
+      <h1>HK 3D 網格</h1>
+      <p class="tagline">香港 3D 攝影測量飛覽 —— 以 Unity + glTFast 呈現真實香港 3D 城市模型(CSDI 攝影測量資料),使用<strong>免費 Apple ID</strong> 側載。</p>
       <ul class="pills">
         <li>零 Apple 機密</li>
         <li>免費 Apple ID</li>
@@ -67,7 +67,7 @@
           <li>以 USB 連接 iPhone,從 AltServer 選單選擇 <em>Install AltStore</em>,輸入你的免費 Apple ID。</li>
           <li>iPhone:設定 → 一般 → VPN 與裝置管理 → 信任你的開發者描述檔。</li>
           <li>AltStore → <em>Sources</em>(來源)→ 右上角「+」→ 貼上下方來源 URL。</li>
-          <li>在來源中找到 <strong>HK Minecraft</strong> → <em>Install</em>,再次輸入同一免費 Apple ID。</li>
+          <li>在來源中找到 <strong>HK 3D 網格</strong> → <em>Install</em>,再次輸入同一免費 Apple ID。</li>
           <li>讓 AltServer 與 iPhone 保持同一 Wi-Fi;AltStore 會在背景重新簽署,更新 7 天憑證。</li>
         </ol>
         <p class="muted small">來源 URL:</p>
@@ -83,7 +83,7 @@
           <li>依 <a href="https://sidestore.io/" rel="noopener">SideStore 官方文件</a>完成一次性電腦設定(配對檔 + StosVPN),把 SideStore 安裝到 iPhone。</li>
           <li>iPhone:設定 → 一般 → VPN 與裝置管理 → 信任 SideStore 的開發者描述檔。</li>
           <li>SideStore → <em>Sources</em> → 「+」→ 貼上與上方相同的來源 URL。</li>
-          <li>選擇 <strong>HK Minecraft</strong> → <em>Install</em>,以免費 Apple ID 簽署。</li>
+          <li>選擇 <strong>HK 3D 網格</strong> → <em>Install</em>,以免費 Apple ID 簽署。</li>
           <li>保持 SideStore 在背景執行;它會透過裝置端服務重新整理憑證,無需電腦。</li>
         </ol>
         <p class="muted small">SideStore 與 AltStore 共用同一個 <code>apps.json</code> 饋流,版本與下載連結完全一致。</p>
@@ -104,14 +104,14 @@
       <article class="method" id="xcode">
         <h3>4. Xcode 直接安裝(開發者,自行簽署)</h3>
         <ol class="steps">
-          <li>複製儲存庫,開啟 <code>codebase/app/HKMinecraftVoxel.xcodeproj</code>。</li>
-          <li>目標 → <em>Signing &amp; Capabilities</em> → Team 選擇你的 <em>Personal Team</em>(免費 Apple ID)。</li>
+          <li>以 Unity 匯出 iOS Xcode 專案(本機 Tuanjie/Unity + iOS Build Support 模組)。</li>
+          <li>開啟匯出的 <code>.xcodeproj</code>,目標 → <em>Signing &amp; Capabilities</em> → Team 選擇你的 <em>Personal Team</em>(免費 Apple ID)。</li>
           <li>以 USB 連接 iPhone,在執行目標選擇該裝置 → <em>Run</em>。</li>
           <li>iPhone:設定 → 一般 → VPN 與裝置管理 → 信任開發者。</li>
           <li>7 天後在 Xcode 重新 <em>Run</em>,或改用 AltStore/SideStore 自動更新。</li>
         </ol>
         <p class="muted small">注意:管線產出的 IPA 是<strong>未簽署</strong>的,不能直接安裝;此路徑由 Xcode
-          以你的免費帳號重新簽署。</p>
+          以你的免費帳號重新簽署。Unity 專案位於 <code>codebase/unity-project/</code>。</p>
       </article>
 
       <article class="method" id="actions">
