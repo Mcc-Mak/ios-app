@@ -25,16 +25,13 @@
 - **ADR-009:** 記錄「遷移 Unity 6 LTS + 分塊 GLB 串流」決策(取代 ADR-007 與 ADR-008)。
 - **ADR-010:** 記錄「引入 Unity 授權檔作為 CI secret」決策(放寬 ADR-006,僅限 Unity 引擎授權;Apple 機密仍零容忍)。
 
-### 驗證(Stage A,11-NW-19B 旺角圖幅)
-- 20 個分塊(5×4 子圖幅網格),全部保留紋理(密集區 9–14 張貼圖/塊,稀疏區 1 張/塊)。
-- 總大小 **36.24 MB** / 200 MB 預算(82% 餘裕);最大分塊 **4.52 MB** / 10 MB 預算。
-- 總三角面 637,565;座標系 EPSG:2326 已置中至圖幅中心 `[35625.42, 20100.076, 119.955]`。
+### 驗證(Stage A,11-NW-15B 九龍城區圖幅 — 使用者提供之實際資料)
+- 圖幅位置:lon 114.1816–114.1888,lat 22.3280–22.3335(東九龍,九龍灣/新蒲崗一帶),~750 × 600 m,建築物高度 ~147 m。
+- 20 個分塊(5×4 子圖幅網格),全塊保留紋理(每塊 1 張貼圖;該區為低密度住宅區,網格較稀疏)。
+- 總大小 **14.16 MB** / 200 MB 預算(93% 餘裕);最大分塊 **0.76 MB** / 10 MB 預算。
+- 總三角面 ~50,000;座標系 EPSG:2326 已置中至圖幅中心 `[37124.898, 21302.305, 77.536]`。
 - `validate_chunks.py` 硬性閘道通過(退出碼 0)。
-
-### 驗證(Stage A,11-NW-15B 圖幅 — 使用者提供之實際資料)
-- 20 個分塊(5×4 網格),全塊保留紋理(每塊 1 張貼圖,稀疏區)。
-- 總大小 **14.16 MB** / 200 MB 預算;最大分塊 **0.76 MB** / 10 MB 預算。
-- 總三角面 ~50,000;`validate_chunks.py` 硬性閘道通過。
+- 對照:密集市區(如旺角 11-NW-19B)實測為 36.24 MB、637,565 三角面、密集區 9–14 張紋理/塊,亦在預算內。
 
 ### 新增(Stage B 鷹架,待 Unity 編譯驗證)
 - **Unity 6 LTS 專案鷹架(`codebase/unity-project/`)**:Stage B 的 C# 腳本與套件清單,標示為鷹架(scaffold),待使用者安裝 Unity 6 LTS + iOS Build Support 後首次開啟編譯驗證。
@@ -47,10 +44,15 @@
   - `README.md`:Unity 專案建立、分塊資料放置、座標系轉換、iOS Player Settings(Stage C)、待驗證 API 清單。
 - **待驗證**:glTFast 6.0 API 簽名(`GltfImport` 建構式、`GameObjectInstantiator`、`TimeBudgetPerFrameDeferAgent.frameBudget`、`SetDefaultDeferAgent`),安裝 Unity 後依 Console 編譯錯誤對照官方 API 文件修正。
 
+### 移除
+- **Swift/SceneKit App(`codebase/app/HKMinecraftVoxel/` 整個目錄)。** 依 ADR-009 架構轉向,Swift App(含 `HKMinecraftApp.swift`、`CSDIMongKokSceneFactory.swift`、`FlyCameraController.swift`、`VoxelMeshBuilder.swift`、`TerrainDataSource.swift`、`ContentView.swift`、`VoxelSceneFactory.swift`、`Info.plist`、`Assets.xcassets`、`zh-Hant.lproj/`、`HKMinecraftVoxel.xcodeproj/`、`HKMinecraftVoxelTests/`、內嵌 7.5 MB `mongkok_11-NW-19B.glb`、`mongkok_11-NW-19B_summary.json`)全數刪除。Unity 專案(`codebase/unity-project/`)取代為唯一 iOS 客戶端。
+- **CI Swift 建置階段(`.github/workflows/cicd.yml` 的 `test:sast`、`build:ipa`、`release:ipa` 三 job)。** 各 job 加 `if: false` 停用並加註「待 Stage C 以 GameCI 重建為 Unity 建置/發行」。`deploy:docs` 解耦(不再 `needs: [build, release]`),獨立維護入口網站與 `apps.json` 饋流。工作流程 `name:` 由「零機密 iOS 管線」改為「iOS 管線」(預告 ADR-010 的 Unity 授權機密將放寬零機密前提)。
+
 ### 變更
 - **ADR-006:** 狀態由「已接受」改為「已接受(ADR-010 部分放寬)」,註明 Unity 授權機密的引入範圍。
 - **ADR-007:** 狀態由「已接受」改為「已取代(由 ADR-009 取代)」。
 - **ADR-008:** 狀態由「已接受」改為「已取代(由 ADR-009 取代)」,註明 pyfqmr 丟失 UV 的缺陷已由 pymeshlab 修正。
+- **`codebase/converter/README.md`:** 範例與 manifest schema 由 11-NW-19B(旺角)改為 11-NW-15B(九龍城區),並補充低密度 vs 高密度區的實測對照。
 
 ## [v1.4.0] - 2026-11-19
 

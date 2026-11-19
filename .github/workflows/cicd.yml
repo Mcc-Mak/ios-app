@@ -1,26 +1,35 @@
-# cicd.yml — 零機密 iOS 管線(單一工作流程,多個 job)
+# cicd.yml — iOS 管線(單一工作流程,多個 job)
+#
+# ⚠ 目前狀態(2026-11-19,v2.0.0 架構轉向 Unity):
+#   - test:sast / build:ipa / release:ipa 三個 job 已停用(if: false)。
+#     原因:Swift/SceneKit App(codebase/app/)已依 ADR-009 移除,
+#     這三個 job 原本建置該 Swift App,現在無建置標的。
+#   - 待 Stage C 完成後,以 GameCI + Unity 授權機密(ADR-010)重建為
+#     Unity iOS 建置/發行管線。停用期間保留 job 定義作為結構參考。
+#   - deploy:docs 仍獨立執行,維護入口網站與 apps.json 饋流。
 #
 # 階段順序(每個 job 顯示名稱皆為「*:*」):
-#   test:sast    → 模擬器測試 + 覆蓋率 + CodeQL Swift 靜態分析(未簽署)
-#   build:ipa    → 建置並打包未簽署 IPA / dSYM / manifest.json,上傳成品
-#   release:ipa  → 僅標籤 v*:建立 GitHub Release 並附加資產
+#   test:sast    → [停用] 模擬器測試 + 覆蓋率 + CodeQL Swift 靜態分析
+#   build:ipa    → [停用] 建置並打包未簽署 IPA / dSYM / manifest.json
+#   release:ipa  → [停用] 僅標籤 v*:建立 GitHub Release 並附加資產
 #   deploy:docs  → 部署入口網站,並由最新 Release 重新產生 apps.json
 #
 # 觸發:
-#   - push 至 main(測試 + 建置 + 部署入口網站)
-#   - push 標籤 v*(完整鏈:測試 → 建置 → 發行 → 部署)
-#   - pull_request 至 main(測試 + 建置;不發行、不部署)
-#   - 每日排程(健康檢查:及早發現 runner / Xcode 版本漂移)
+#   - push 至 main(部署入口網站)
+#   - push 標籤 v*(部署入口網站;發行待 Stage C 重建)
+#   - pull_request 至 main(目前無建置,僅觸發 workflow 供觀察)
+#   - 每日排程(健康檢查;待 Stage C 重建後恢復建置)
 #   - workflow_dispatch(手動)
 #
 # 零 Apple 機密:僅使用內建 GITHUB_TOKEN。所有 xcodebuild 皆未簽署:
 #   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 #   CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""
+#   (Unity 建置階段將引入 Unity 授權 .ulf 機密,見 ADR-010;Apple 簽署仍零)
 #
 # 一次性儲存庫設定:
 #   Settings → Pages → Build and deployment → Source = GitHub Actions(非分支)
 #   Settings → Actions → General → Workflow permissions = Read and write
-name: 零機密 iOS 管線
+name: iOS 管線
 
 on:
   push:
@@ -42,8 +51,10 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------- test:sast
+  # [停用 v2.0.0] Swift App 已移除,無建置標的;待 Stage C 以 GameCI 重建。
   test:
     name: 'test:sast'
+    if: false   # 停用:待 Stage C 重建為 Unity 測試
     runs-on: macos-latest
     permissions:
       contents: read
@@ -133,8 +144,10 @@ jobs:
           category: '/language:swift'
 
   # ----------------------------------------------------------------- build:ipa
+  # [停用 v2.0.0] Swift App 已移除;待 Stage C 以 GameCI 重建為 Unity iOS 建置。
   build:
     name: 'build:ipa'
+    if: false   # 停用:待 Stage C 重建
     needs: test
     runs-on: macos-latest
     steps:
@@ -188,10 +201,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # --------------------------------------------------------------- release:ipa
+  # [停用 v2.0.0] Swift App 已移除;待 Stage C 以 GameCI 重建為 Unity 發行。
   release:
     name: 'release:ipa'
+    if: false   # 停用:待 Stage C 重建
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write   # 建立發行版本 + 上傳資產
@@ -246,16 +260,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------- deploy:docs
+  # [v2.0.0] build/release 已停用,deploy 改為獨立立執行(僅需 checkout + 站台檔)。
+  # 待 Stage C 重建 build/release 後,可恢復 needs: [build, release] 與發行閘門。
   deploy:
     name: 'deploy:docs'
-    needs: [build, release]
-    # main / 手動觸發都部署;標籤發行必須等 release 成功。
-    # release 在非標籤事件會被略過(skipped),此時仍應部署文件。
+    # 不再 needs build/release(兩者已 if: false)。直接於 push/dispatch 部署。
     if: |
       always() && !cancelled()
       && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-      && needs.build.result == 'success'
-      && (needs.release.result == 'success' || needs.release.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read

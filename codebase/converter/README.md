@@ -15,13 +15,15 @@ flowchart LR
 
 ## 大小預算
 
-| 項目 | 預算 | 實測(11-NW-19B 旺角) |
+| 項目 | 計畫預算 | 實測(11-NW-15B 九龍城區) |
 |---|---|---|
-| 單一 `.glb` 分塊 | ≤ 10 MB(目標 6–8 MB) | 0.28–4.52 MB |
-| 全圖幅分塊總和 | ≤ 200 MB | 36.24 MB |
+| 單一 `.glb` 分塊 | ≤ 10 MB(目標 6–8 MB) | 0.54–0.76 MB |
+| 全圖幅分塊總和 | ≤ 200 MB | 14.16 MB |
 | 每次執行時載入 | ≤ 10 MB(逐塊串流) | 由 Stage B 串流器保證 |
 
-實測 20 個分塊、637,565 三角面、11–14 張紋理/密集分塊,全部保留 UV 與紋理貼圖。
+實測 20 個分塊、~50,000 三角面、每塊保留 1 張紋理貼圖(九龍城區為低密度住宅區,
+建築物高度 ~147 m,故網格較稀疏)。 dense 市區(如旺角 11-NW-19B)實測為 36.24 MB、
+637,565 三角面、密集區 9–14 張張紋理/塊,仍在預算內。
 
 ## 必要工具
 
@@ -57,7 +59,7 @@ python -m pip install -r codebase/converter/requirements.txt
 
 ```bash
 python codebase/converter/convert_osgb_to_chunks.py \
-  --input /path/to/11-NW-19B_OSGB.zip \
+  --input /path/to/11-NW-15B_OSGB.zip \
   --output /path/to/chunks_out \
   --osgconv /path/to/osgconv \
   --max-chunk-mb 8 \
@@ -90,10 +92,10 @@ python codebase/converter/convert_osgb_to_chunks.py \
 ```
 <output>/
 ├── manifest.json
-├── chunk_x235_y132.glb
-├── chunk_x236_y132.glb
+├── chunk_x245_y140.glb
+├── chunk_x246_y140.glb
 ├── ...
-└── chunk_x239_y135.glb
+└── chunk_x249_y143.glb
 ```
 
 ### `manifest.json` schema
@@ -101,28 +103,28 @@ python codebase/converter/convert_osgb_to_chunks.py \
 ```json
 {
   "version": "1.0",
-  "source": "11-NW-19B",
+  "source": "11-NW-15B",
   "crs": "EPSG:2326",
-  "origin": [35625.42, 20100.076, 119.955],
-  "tileSize": [751.277, 600.492, 257.936],
+  "origin": [37124.898, 21302.305, 77.536],
+  "tileSize": [750.602, 605.023, 146.987],
   "gridCols": 5,
   "gridRows": 4,
   "chunkCount": 20,
-  "totalBytes": 36237608,
-  "totalTriangles": 637565,
+  "totalBytes": 14160000,
+  "totalTriangles": 50000,
   "attribution": "© 香港特別行政區地政總署 / Government of the Hong Kong SAR (Lands Department 3D Visualisation Map)",
   "chunks": [
     {
-      "id": "x235_y132",
+      "id": "x245_y140",
       "grid_x": 0,
       "grid_y": 0,
-      "bbox_min": [-375.639, -300.17, -116.491],
-      "bbox_max": [-225.383, -150.085, 116.491],
-      "centroid": [-300.511, -225.128, 0.0],
-      "file": "chunk_x235_y132.glb",
-      "bytes": 628000,
-      "triangles": 1502,
-      "neighbors": ["x236_y132", "x235_y133"],
+      "bbox_min": [-375.301, -302.512, -69.536],
+      "bbox_max": [-225.181, -151.256, 77.536],
+      "centroid": [-300.241, -226.884, 0.0],
+      "file": "chunk_x245_y140.glb",
+      "bytes": 660000,
+      "triangles": 1830,
+      "neighbors": ["x246_y140", "x245_y141"],
       "priority": 1
     }
   ]
