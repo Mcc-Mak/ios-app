@@ -127,7 +127,7 @@ jobs:
 
       - name: 上傳測試結果與覆蓋率
         if: always() && steps.discover.outputs.scheme != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: |
@@ -212,7 +212,7 @@ jobs:
         run: ./codebase/scripts/build_unity_ipa.sh
 
       - name: 上傳 .ipa 成品(供下載)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unsigned-ipa
           path: |
@@ -222,7 +222,7 @@ jobs:
           retention-days: 30
 
       - name: 上傳 dSYM 符號檔
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dsym
           path: build/output/*.dSYM.zip
