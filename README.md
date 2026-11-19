@@ -1,13 +1,19 @@
 # ios-app
 
-**香港體素飛覽 App(HK Minecraft)** —— 以 SceneKit + Metal 在 iPhone 上以 Minecraft 體素風格
-呈現香港地形(太平山、大帽山、鳳凰山等),地形資料來源可插拔(程序化或 HK CSDI 開放資料 DEM)。
+**香港體素飛覽 App(HK Minecraft)** —— 以 SceneKit + Metal 在 iPhone 上呈現香港地形,
+支援兩種場景模式:(1) Minecraft 體素風格的程序化香港山脊(太平山、大帽山、鳳凰山等),
+(2) **旺角實景** —— 直接載入香港地政總署 CSDI 開放資料的真實 3D 網格(非程序化、非猜測),
+攝影機以 300 m AGL 貼地巡航。地形資料來源可插拔。
 以**免費 Apple ID 側載**方式散布 —— 無需付費 Apple 開發者計畫、無需憑證、無需描述檔、無需 TestFlight。
 版本由零成本 GitHub Actions 管線建置,並以 GitHub Release 與 GitHub Pages 上的 AltStore/SideStore
 來源饋流發布。
 
 > 狀態:管線與 App 皆已建置完成;Xcode 專案位於 `codebase/app/HKMinecraftVoxel.xcodeproj`,
 > 由 `build_unsigned_ipa.sh` 自動探索。詳見 [儲存庫結構](#儲存庫結構)。
+
+> **資料來源標註:** 旺角實景場景使用香港特別行政區地政總署(Lands Department)
+> 「3D 視覺化地圖(圖幅式模型)」開放資料,圖幅 `11-NW-19B`。資料以開放授權提供,
+> 使用時須標註「© 香港特別行政區地政總署 / Government of the Hong Kong SAR」。
 
 ---
 

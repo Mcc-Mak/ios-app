@@ -9,6 +9,19 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v1.4.0] - 2026-11-19
+
+### 新增
+- **旺角實景(CSDI)場景:** 新增 `CSDIMongKokSceneFactory.swift`,載入香港地政總署(Lands Department)3D 視覺化地圖之旺角圖幅 `11-NW-19B` 真實網格資料。資料來源為 CSDI 開放資料(OSGB 格式,圖幅涵蓋約 751 m × 600 m,座標系 EPSG:2326 HK 1980 Grid),經離線轉換(osgconv → OBJ → trimesh/pyfqmr 簡化)為 glTF 二進位檔(.glb,7.5 MB,179,811 三角面)隨 App 打包。使用者可於 HUD 切換「程序化香港」與「旺角實景(CSDI)」兩種場景。
+- **300 m AGL 貼地巡航攝影機:** `FlyCameraController` 在 CSDI 模式下以射線向下取樣地面/建築物頂高度,攝影機維持離地 300 m(AGL),確保不會穿入建築物。程序化模式仍維持原有的 380 m 絕對高度巡航。
+- **CSDI 資料來源標註:** App 內附 `mongkok_11-NW-19B_summary.json` 記錄資料來源、座標系、三角面數與授權標註(© 香港特別行政區地政總署)。
+- **ADR-008:** 記錄「直接顯示 CSDI 真實網格(非體素化)」的決策,以及離線簡化策略與大小取捨。
+
+### 變更
+- **App 版本升至 1.4.0:** `CFBundleShortVersionString` 與 `MARKETING_VERSION` 由 1.3.0 升至 1.4.0。
+- **HUD 新增場景切換器:** `FlyHUD` 加入 `Picker`(segmented style)切換場景模式;既有巡航/暫停按鈕保留。
+- **預設場景改為旺角實景:** App 啟動時優先顯示 CSDI 旺角實景。
+
 ## [v1.3.0] - 2026-11-18
 
 ### 新增

@@ -59,9 +59,30 @@ sequenceDiagram
 | 健康檢查 | `cicd.yml` 每日排程 | 每日 cron 執行 `test:sast` → `build:ipa`，偵測 runner/Xcode 版本漂移。 |
 | Dependabot | `../.github/dependabot.yml` | `swift` + `github-actions` 生態系，每週一更新。 |
 
-**設計原則：** 未簽署四旗標每次必帶（ADR-001）；版本/bundleID/大小/日期 asset-sourced（ADR-003）；單一 workflow、多 job、固定 `階段:產物` 命名（ADR-005）；僅 `GITHUB_TOKEN`、零 Apple 機密（ADR-006）。
+**設計原則：** 未簽署四旗標每次必帶(ADR-001);版本/bundleID/大小/日期 asset-sourced(ADR-003);單一 workflow、多 job、固定 `階段:產物` 命名(ADR-005);僅 `GITHUB_TOKEN`、零 Apple 機密(ADR-006);以原生 Swift + SceneKit + Metal 實作(ADR-007);直接顯示 CSDI 真實網格並以離線簡化縮小檔案(ADR-008)。
+
+## App 場景架構
+
+App 支援兩種場景模式,可由 HUD 切換:
+
+```mermaid
+flowchart LR
+  mode["場景模式 Picker"] -->|"程序化香港"| proc["VoxelSceneFactory<br/>ProceduralHKTerrain<br/>6 座山峰體素網格<br/>380 m 絕對高度巡航"]
+  mode -->|"旺角實景 CSDI"| csdi["CSDIMongKokSceneFactory<br/>mongkok_11-NW-19B.glb<br/>179,811 三角面<br/>300 m AGL 貼地巡航"]
+  proc --> cam["FlyCameraController<br/>CADisplayLink 環繞"]
+  csdi --> cam
+  cam --> scn["SceneKit SCNScene<br/>+ 攝影機節點"]
+```
+
+| 元件 | 檔案 | 職責 |
+| --- | --- | --- |
+| 程序化地形工廠 | `../codebase/app/HKMinecraftVoxel/VoxelSceneFactory.swift` | 6 座香港山峰的體素網格、天空、光照、霧。 |
+| CSDI 旺角實景工廠 | `../codebase/app/HKMinecraftVoxel/CSDIMongKokSceneFactory.swift` | 載入 bundled glb(ModelIO)、組裝 SceneKit 場景。圖幅尺寸 751×600×258 m。 |
+| 飛行攝影機 | `../codebase/app/HKMinecraftVoxel/FlyCameraController.swift` | CADisplayLink 環繞巡航;CSDI 模式以射線取樣地面高度維持 300 m AGL。 |
+| CSDI 網格資源 | `../codebase/app/HKMinecraftVoxel/mongkok_11-NW-19B.glb` | LandsD 3D 視覺化地圖 OSGB 根 LOD,離線簡化為 glTF 二進位(7.5 MB)。 |
+| 體素地形來源協定 | `../codebase/app/HKMinecraftVoxel/TerrainDataSource.swift` | 可插拔高度場介面;預設 `ProceduralHKTerrain`。 |
 
 ## 關聯文件
 
-- 決策理由：`./adr.md`
-- 介面契約：`./api.md`　·　欄位綱要：`./schema.md`　·　實體關係：`./erd.md`
+- 決策理由:`./adr.md`
+- 介面契約:`./api.md`　·　欄位綱要:`./schema.md`　·　實體關係:`./erd.md`

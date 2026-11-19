@@ -1,0 +1,35 @@
+{
+  "tile": "mongkok_11-NW-19B",
+  "source": "LandsD 3D Visualisation Map (Tile-based) 11-NW-19B, OSGB root LOD, preserve_border=False decimation",
+  "crs": "EPSG:2326 recentered to tile centroid (local frame)",
+  "triangles_before": 677386,
+  "triangles_after": 179811,
+  "decimate_threshold": 3000,
+  "n_geometries": 111,
+  "n_decimated_meshes": 79,
+  "world_bbox_min": [
+    35249.78125,
+    19799.830078125,
+    -9.012866973876953
+  ],
+  "world_bbox_max": [
+    36001.05859375,
+    20400.322265625,
+    248.92291259765625
+  ],
+  "centroid": [
+    35625.419921875,
+    20100.076171875,
+    119.95502281188965
+  ],
+  "size_m": [
+    751.28,
+    600.49,
+    257.94
+  ],
+  "glb_path": "C:\\Users\\ccmak\\AppData\\Local\\Temp\\opencode\\csdi\\11-NW-19B_out\\mongkok_11-NW-19B.glb",
+  "glb_bytes": 7545212,
+  "glb_mb": 7.55,
+  "max_texture_px": 256,
+  "attribution": "Data © Lands Department, The Government of the Hong Kong Special Administrative Region"
+}
