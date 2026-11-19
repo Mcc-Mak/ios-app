@@ -200,12 +200,25 @@ echo ""
 echo "─── 階段 2:xcodebuild archive(未簽署)───"
 
 # 偵測 scheme
-# Tuanjie 匯出產生 Tuanjie-iPhone.xcscheme;Unity 匯出產生 Unity-iPhone.xcscheme
-SCHEMES=$(xcodebuild -list -project "$XCODEPROJ" 2>/dev/null | grep -A20 "Schemes:" | grep -E "^\s+\S" | head -n1 | tr -d ' ')
+# 優先從 xcshareddata/xcschemes/ 直接讀取 .xcscheme 檔名(最可靠,
+# 不依賴 xcodebuild -list 的輸出格式,避免 BSD grep 與 BOM 問題)。
+# Tuanjie 匯出:Tuanjie-iPhone.xcscheme;Unity 匯出:Unity-iPhone.xcscheme
+SCHEMES=""
+if [[ -d "$XCODEPROJ/xcshareddata/xcschemes" ]]; then
+  SCHEMES=$(basename "$(find "$XCODEPROJ/xcshareddata/xcschemes" -maxdepth 1 -name "*.xcscheme" -print -quit 2>/dev/null)" .xcscheme 2>/dev/null || true)
+fi
+
+# Fallback:xcodebuild -list(注意 BSD grep 不支援 \s,改用 [[:space:]])
 if [[ -z "$SCHEMES" ]]; then
-  # 依 .xcodeproj 名稱推斷(Tuanjie-iPhone.xcodeproj → Tuanjie-iPhone)
+  SCHEMES=$(xcodebuild -list -project "$XCODEPROJ" 2>/dev/null \
+    | awk '/^Schemes:/{flag=1; next} /^[A-Za-z]/{flag=0} flag && NF{print; exit}' \
+    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+fi
+
+# 最終 fallback:依 .xcodeproj 名稱推斷
+if [[ -z "$SCHEMES" ]]; then
   SCHEMES=$(basename "$XCODEPROJ" .xcodeproj)
-  echo "::warning::無法以 xcodebuild -list 偵測 scheme,改用 .xcodeproj 名稱推斷: $SCHEMES"
+  echo "::warning::無法偵測 scheme,改用 .xcodeproj 名稱推斷: $SCHEMES"
 fi
 echo "Scheme: $SCHEMES"
 
