@@ -64,6 +64,24 @@
 - **`codebase/scripts/export_xcode_project.ps1`** — Windows PowerShell 本機匯出腳本:呼叫 Tuanjie 批次模式 `BuildIOS.Export` 匯出 Xcode 專案,打包為 `xcode-export-<ver>.tar.gz`,可選 `-Upload` 自動上傳至 GitHub Release。前置檢查:iOS Build Support 模組、分塊資料、Tuanjie 未執行中。
 - **`codebase/unity-project/Assets/Editor/BuildIOS.cs`** — Unity Editor 建置腳本(batchmode `-executeMethod BuildIOS.Export` 入口):設定 iOS Player Settings(bundle ID `com.mccmak.hkgridvoxel`、版本、最低 iOS 12.0、IL2CPP、arm64),呼叫 `BuildPipeline.BuildPlayer` 匯出 Xcode 專案。環境變數可覆寫設定。
 
+### 驗證(Stage C — iOS Build Support 安裝與本機 Xcode 匯出)
+- **iOS Build Support 模組安裝(直接下載安裝器)。** Tuanjie Hub 無法偵測本機 Editor 安裝(Hub 掃描 `C:\Program Files\Tuanjie\Hub\Editor\`,但 Editor 實際位於 `C:\Program Files\Tuanjie 2022.3.61t15\`),「Add Modules」功能無法使用。改從 Hub 的 `releases.json` 模組目錄取出 iOS 模組安裝器直連網址,直接下載 + NSIS 靜默安裝:
+  - 安裝器:`TuanjieSetup-iOS-Support-for-Editor-2022.3.61t15.exe`(665.9 MB,MD5 `f7deadfe9ede4e28da5a163026dab03e`)。
+  - 安裝指令:`TuanjieSetup-iOS-Support-for-Editor-2022.3.61t15.exe /S /D=C:\Program Files\Tuanjie 2022.3.61t15`(NSIS `/S`=靜默,`/D`=目標目錄必須是最後一個參數且不加引號)。
+  - 安裝結果:3.1 GB,位於 `Editor\Data\PlaybackEngines\iossupport\`,含 `UnityEditor.iOS.Extensions.dll`、`iOSPlayerBuildProgram.exe`、`il2cpp`、`arm64`/`x64` 工具鏈、`Trampoline`(iOS app 模板)。
+  - 授權:啟用 entitlement `com.unity.editor.platforms.ios`(由 Tuanjie 授權伺服器核發)。
+- **本機 Xcode 專案匯出驗證通過。** `Tuanjie.exe -batchmode -nographics -executeMethod BuildIOS.Export -quit` 在 53 秒內成功匯出 `Tuanjie-iPhone.xcodeproj`(600.2 MB,exit 0):
+  - `Info.plist`:`CFBundleShortVersionString=2.1.0`、`CFBundleDisplayName=HKGridVoxel`、`PRODUCT_BUNDLE_IDENTIFIER=com.mccmak.hkgridvoxel`(BuildIOS.cs 的 `SetApplicationIdentifier` 覆寫了 ProjectSettings.asset 的 `com.McCmak.HKGridVoxel`)。
+  - Scheme:`Tuanjie-iPhone`(`xcshareddata/xcschemes/Tuanjie-iPhone.xcscheme`)。
+  - 結構:`Il2CppOutputProject/`(293.5 MB C++ 原始碼)、`Libraries/`(281.1 MB 原生函式庫)、`Data/`(含 StreamingAssets/Chunks/*.glb)、`Classes/`、`MainApp/`、`TuanjieFramework/`、launch screens、`Info.plist`、`process_symbols.sh`。
+  - 打包為 `xcode-export-v2.1.0.tar.gz`(197.2 MB,67.1% 壓縮率),上傳至 GitHub Release `xcode-export-v2.1.0`。
+- **`ProjectSettings.asset` 同步:** BuildIOS.cs 套用的 iOS Player Settings 持久化(`bundleVersion` 1.0→2.1.0、`applicationIdentifier.iPhone`、`scriptingBackend.iPhone=1` IL2CPP、`platformArchitecture.iPhone=1` ARM64、`overrideDefaultApplicationIdentifier=1`)。
+
+### 修正(Stage C — 建置腳本與饋流)
+- **`build_unity_ipa.sh` scheme 偵測改進。** Tuanjie 匯出的 Xcode 專案使用 `Tuanjie-iPhone` 作為 scheme 名稱(Unity 為 `Unity-iPhone`)。原本 fallback 寫死為 `Unity-iPhone`,會在 Tuanjie 匯出上失敗。改為偵測失敗時以 `.xcodeproj` 名稱推斷 scheme(`Tuanjie-iPhone.xcodeproj`→`Tuanjie-iPhone`)。
+- **`generate_apps_json.sh` 饋流僅考慮 v* 發行版本。** 儲存庫現有三種發行版本:`v*`(App 發行,含 .ipa)、`xcode-export-*`(Xcode 專案 tarball,無 .ipa)、`data-*`(分塊資料,無 .ipa)。原本以 `gh release list --limit 1` 取最新發行版本,若 `xcode-export-*` 或 `data-*` 在 `v*` 之後建立,會被誤選為「最新」→ 饋流因無 .ipa 變空。改用 `--exclude-drafts --json tagName,createdAt` + jq 過濾 `startswith("v")` 並依 `createdAt` 降序取第一個。
+- **`export_xcode_project.ps1` iOS 模組提示訊息更新。** Tuanjie Hub 無法偵測此 Editor 安裝,提示改為直接下載模組安裝器 + `/S /D=<Editor 根目錄>` 靜默安裝。
+
 ## [v2.0.0] - 2026-11-19
 
 ### 重大變更
