@@ -1,32 +1,34 @@
 # cicd.yml — iOS 管線(單一工作流程,多個 job)
 #
 # ⚠ 目前狀態(2026-11-19,v2.1.0 過渡架構):
-#   - test:sast / build:ipa / release:ipa 三個 job 已停用(if: false)。
-#     原因:Tuanjie 授權(.alf)為機器綁定且 4 天有效期,尚未設定為 CI secret。
-#     待授權續期 + UNITY_LICENSE secret 設定後,翻轉 if: false → if: true 啟用。
+#   - 本機 Windows 匯出 Xcode 專案 → CI macOS 執行 xcodebuild → .ipa
+#     原因:Tuanjie 授權(.alf)為機器綁定,僅本機可用;Windows 無 xcodebuild。
+#     解法:本機用 Tuanjie 匯出 Xcode 專案(授權在本機),上傳至 GitHub Release,
+#     CI macOS runner 下載後執行 xcodebuild(不需 Unity 授權)。
 #   - 分塊資料(.glb)改以 GitHub Release asset 提供(data-* 標籤,不觸發管線),
 #     建置前由 codebase/scripts/fetch_chunks.sh 下載注入 StreamingAssets/Chunks/。
-#   - 過渡期間:本機手動建置 .ipa + 手動 gh release create;CI 僅負責 deploy:docs。
-#   - deploy:docs 仍獨立執行,維護入口網站與 apps.json 饋流。
+#   - test:sast 維持停用(待 Unity 授權續期 + 設定 CI secret 後以 GameCI 重建)。
+#   - deploy:docs 於 push 及 workflow_dispatch 皆執行,維護入口網站與 apps.json 饋流。
 #
 # 階段順序(每個 job 顯示名稱皆為「*:*」):
 #   test:sast    → [停用] Unity 測試(GameCI unity-test-runner)+ CodeQL C#
-#   build:ipa    → [停用] GameCI unity-builder 匯出 iOS → xcodebuild 未簽署封存 → .ipa
-#                  建置前呼叫 fetch_chunks.sh 注入分塊資料
-#   release:ipa  → [停用] 僅標籤 v*:建立 GitHub Release 並附加 .ipa / dSYM / manifest.json
+#   build:ipa    → [僅 workflow_dispatch] 下載 Xcode 匯出 → xcodebuild 未簽署封存 →
+#                  .ipa + dSYM + manifest.json → 上傳至目標 release
+#   release:ipa  → [已合併至 build:ipa] build job 直接上傳資產至 release
 #   deploy:docs  → 部署入口網站,並由最新 Release 重新產生 apps.json
 #
 # 觸發:
 #   - push 至 main(部署入口網站)
-#   - push 標籤 v*(部署入口網站;發行待 Stage C 重建)
+#   - push 標籤 v*(部署入口網站)
 #   - pull_request 至 main(目前無建置,僅觸發 workflow 供觀察)
-#   - 每日排程(健康檢查;待 Stage C 重建後恢復建置)
-#   - workflow_dispatch(手動)
+#   - 每日排程(健康檢查)
+#   - workflow_dispatch(手動觸發 build:ipa + deploy:docs)
+#     輸入:xcode_export_tag(Xcode 匯出 release 標籤)、release_tag(目標發行標籤)
 #
 # 零 Apple 機密:僅使用內建 GITHUB_TOKEN。所有 xcodebuild 皆未簽署:
 #   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 #   CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""
-#   (Unity 建置階段將引入 Unity 授權 .ulf/.alf 機密,見 ADR-010;Apple 簽署仍零)
+#   (Unity 匯出在本機執行;CI 僅跑 xcodebuild,不需 Unity 授權;Apple 簽署零)
 #
 # 一次性儲存庫設定:
 #   Settings → Pages → Build and deployment → Source = GitHub Actions(非分支)
@@ -42,6 +44,15 @@ on:
   schedule:
     - cron: '17 6 * * *'   # 每日 ~06:17 UTC:未簽署建置健康檢查
   workflow_dispatch:
+    inputs:
+      xcode_export_tag:
+        description: '包含 Xcode 匯出資產的 release 標籤(如 xcode-export-v2.1.0)'
+        required: true
+        type: string
+      release_tag:
+        description: '目標發行標籤(上傳 .ipa 的 release,如 v2.1.0)'
+        required: true
+        type: string
 
 # 僅取消 pull_request 上被取代的舊執行;main / 標籤的執行(含 Pages 部署)不中斷。
 concurrency:
@@ -146,12 +157,16 @@ jobs:
           category: '/language:swift'
 
   # ----------------------------------------------------------------- build:ipa
-  # [停用 v2.0.0] Swift App 已移除;待 Stage C 以 GameCI 重建為 Unity iOS 建置。
+  # [v2.1.0] 本機 Windows 匯出 Xcode 專案 → CI macOS 執行 xcodebuild → .ipa
+  # 僅 workflow_dispatch 觸發:使用者先在本機匯出 Xcode 專案、上傳至 GitHub Release,
+  # 再以 workflow_dispatch 指定 xcode_export_tag 與 release_tag 觸發此 job。
+  # CI 不需 Unity 授權(僅跑 xcodebuild);Unity 授權留於本機。
   build:
     name: 'build:ipa'
-    if: false   # 停用:待 Stage C 重建
-    needs: test
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
+    permissions:
+      contents: write   # 上傳 .ipa / dSYM / manifest.json 至 release
     steps:
       - name: 取出原始碼
         uses: actions/checkout@v4
@@ -164,17 +179,45 @@ jobs:
       - name: 設定腳本為可執行
         run: chmod +x codebase/scripts/*.sh
 
-      - name: 建置並打包未簽署 IPA
-        id: build
-        run: ./codebase/scripts/build_unsigned_ipa.sh
+      - name: 下載 Xcode 匯出資產
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.xcode_export_tag }}"
+          echo "從 release $tag 下載 Xcode 匯出資產..."
+          mkdir -p build/xcode-download
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+            --pattern "xcode-export-*.tar.gz" --dir build/xcode-download
+          echo "下載完成:"
+          ls -lh build/xcode-download/
 
-      - name: 上傳未簽署 IPA 與 manifest
+      - name: 解壓 Xcode 匯出
+        run: |
+          set -euo pipefail
+          mkdir -p build/ios-xcode
+          tarball=$(find build/xcode-download -name "xcode-export-*.tar.gz" | head -n1)
+          echo "解壓 $tarball → build/ios-xcode/"
+          tar -xzf "$tarball" -C build/ios-xcode --strip-components=1
+          echo "解壓完成。.xcodeproj:"
+          find build/ios-xcode -maxdepth 1 -name "*.xcodeproj"
+
+      - name: xcodebuild 封存並打包 .ipa(未簽署)
+        id: build
+        env:
+          XCODEBUILD_ONLY: '1'
+          XCODE_PROJECT_DIR: ${{ github.workspace }}/build/ios-xcode
+          ARCHIVE_DIR: ${{ github.workspace }}/build
+          OUTPUT_DIR: ${{ github.workspace }}/build/output
+        run: ./codebase/scripts/build_unity_ipa.sh
+
+      - name: 上傳 .ipa 成品(供下載)
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-ipa
           path: |
-            build/ipa/*.ipa
-            build/ipa/manifest.json
+            build/output/*.ipa
+            build/output/manifest.json
           if-no-files-found: error
           retention-days: 30
 
@@ -182,93 +225,68 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dsym
-          path: build/dsym/*.dSYM.zip
+          path: build/output/*.dSYM.zip
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: 寫入執行摘要
-        run: |
-          {
-            echo "### 未簽署建置成品"
-            echo ""
-            echo "| 項目 | 值 |"
-            echo "| --- | --- |"
-            echo "| App | ${{ steps.build.outputs.app-name }} |"
-            echo "| 版本 | ${{ steps.build.outputs.app-version }} |"
-            echo "| Bundle ID | ${{ steps.build.outputs.bundle-id }} |"
-            echo "| IPA | \`${{ steps.build.outputs.ipa-file-name }}\` |"
-            echo ""
-            echo "- 本次執行下載:本頁底部 **Artifacts → unsigned-ipa**(需登入 GitHub,保留 30 天)。"
-            echo "- 永久下載:https://github.com/${{ github.repository }}/releases/latest"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  # --------------------------------------------------------------- release:ipa
-  # [停用 v2.0.0] Swift App 已移除;待 Stage C 以 GameCI 重建為 Unity 發行。
-  release:
-    name: 'release:ipa'
-    if: false   # 停用:待 Stage C 重建
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write   # 建立發行版本 + 上傳資產
-    steps:
-      - name: 下載 IPA 成品
-        uses: actions/download-artifact@v4
-        with:
-          name: unsigned-ipa
-          path: build/ipa
-
-      - name: 下載 dSYM 成品(若存在)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: dsym
-          path: build/dsym
-
-      - name: 建立 GitHub Release 並附加資產
+      - name: 上傳 .ipa 至目標 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          manifest="build/ipa/manifest.json"
+          tag="${{ inputs.release_tag }}"
+          manifest="build/output/manifest.json"
           app=$(jq -r '.appName' "$manifest")
           ver=$(jq -r '.version' "$manifest")
 
+          # 建立 release(若不存在);不使用 --verify-tag,允許自動建立標籤
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::notice::發行版本 $tag 已存在,改為更新資產。"
+            echo "::notice::發行版本 $tag 已存在,更新資產。"
           else
             gh release create "$tag" \
               --repo "$GITHUB_REPOSITORY" \
               --title "$app $ver" \
-              --generate-notes \
-              --verify-tag
+              --generate-notes
+            echo "已建立發行版本 $tag"
           fi
 
-          # 以 nullglob 收集資產,避免 dSYM 不存在時把字面 glob 傳給 gh。
+          # 收集資產(nullglob 避免空 glob)
           shopt -s nullglob
-          assets=(build/ipa/*.ipa "$manifest")
-          dsyms=(build/dsym/*.dSYM.zip)
+          assets=(build/output/*.ipa "$manifest")
+          dsyms=(build/output/*.dSYM.zip)
           shopt -u nullglob
           if (( ${#dsyms[@]} )); then assets+=("${dsyms[@]}"); fi
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+          echo "已上傳資產至 release $tag"
 
+      - name: 寫入執行摘要
+        run: |
           {
-            echo "### 發行版本 \`$tag\`"
+            echo "### iOS 建置完成(未簽署)"
             echo ""
-            echo "- App:$app $ver"
-            echo "- IPA:https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$(basename "${assets[0]}")"
+            echo "| 項目 | 值 |"
+            echo "| --- | --- |"
+            echo "| Xcode 匯出來源 | \`${{ inputs.xcode_export_tag }}\` |"
+            echo "| 目標發行標籤 | \`${{ inputs.release_tag }}\` |"
+            echo "| IPA 檔名 | \`${{ steps.build.outputs.ipa-file-name }}\` |"
+            echo "| App | ${{ steps.build.outputs.app-name }} |"
+            echo "| 版本 | ${{ steps.build.outputs.app-version }} |"
+            echo "| Bundle ID | ${{ steps.build.outputs.bundle-id }} |"
+            echo ""
+            echo "- Release:https://github.com/${{ github.repository }}/releases/tag/${{ inputs.release_tag }}"
             echo "- 入口網站:https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------- deploy:docs
-  # [v2.0.0] build/release 已停用,deploy 改為獨立立執行(僅需 checkout + 站台檔)。
-  # 待 Stage C 重建 build/release 後,可恢復 needs: [build, release] 與發行閘門。
+  # [v2.1.0] build:ipa 僅 workflow_dispatch 觸發;deploy 於 push 及 workflow_dispatch 皆執行。
+  # needs: build 確保 workflow_dispatch 時,deploy 在 build 完成後才執行(重新產生 apps.json)。
+  # push 時 build 被跳過(if: workflow_dispatch),deploy 仍正常執行(skipped needs 視為成功)。
   deploy:
     name: 'deploy:docs'
-    # 不再 needs build/release(兩者已 if: false)。直接於 push/dispatch 部署。
+    needs: build
     if: |
       always() && !cancelled()
+      && (needs.build.result == 'success' || needs.build.result == 'skipped')
       && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:

@@ -49,7 +49,20 @@
 - **`DISTRICT-TO-TILENAME.md`**(儲存庫根目錄)— 香港行政區 → CSDI 圖幅名稱對照表(11 區,數百個圖幅),供選取目標圖幅時參考。
 
 ### 變更(CI)
-- **`cicd.yml`** 標頭註解更新:記錄「data release + fetch 注入 + 本機建置 + CI 部署」過渡架構。`test`/`build`/`release` job 維持 `if: false`(待 Tuanjie 授權續期 + `UNITY_LICENSE` secret 設定後啟用);`deploy:docs` 維持獨立執行。
+- **`cicd.yml`** 重新設計為「本機 Windows 匯出 Xcode 專案 → CI macOS 執行 xcodebuild → .ipa」過渡架構。原因:Tuanjie 授權(.alf)為機器綁定,僅本機可用;Windows 無 xcodebuild。解法:本機用 Tuanjie 匯出 Xcode 專案(授權在本機),上傳至 GitHub Release,CI macOS runner 下載後執行 xcodebuild(不需 Unity 授權)。
+  - `build:ipa` job 重新啟用:僅 `workflow_dispatch` 觸發,macOS runner,下載 Xcode 匯出資產 → `xcodebuild archive`(未簽署,4 旗標)→ 打包 `.ipa` + dSYM + manifest.json → 上傳至目標 release。合併原 `release:ipa` job 的 release 建立邏輯。
+  - `workflow_dispatch` 新增 `inputs`:`xcode_export_tag`(Xcode 匯出 release 標籤)、`release_tag`(目標發行標籤)。
+  - `deploy:docs` 加入 `needs: build`,確保 `workflow_dispatch` 時 deploy 在 build 完成後才執行(重新產生 apps.json);push 時 build 被跳過,deploy 仍正常執行。
+  - `test:sast` 維持停用(待 Unity 授權續期 + 設定 CI secret 後以 GameCI 重建)。
+
+### 新增(建置腳本)
+- **`codebase/scripts/build_unity_ipa.sh`** — 完整 iOS 建置管線腳本,支援三種模式:
+  - 預設(全管線):`fetch_chunks` + Unity 匯出 + `xcodebuild` + 打包(需 macOS)
+  - `UNITY_EXPORT_ONLY=1`:`fetch_chunks` + Unity 匯出(Windows 本機用,產出 Xcode 專案)
+  - `XCODEBUILD_ONLY=1`:僅 `xcodebuild` + 打包(CI macOS 用,使用預匯出 Xcode 專案,需搭配 `XCODE_PROJECT_DIR`)
+  - 所有 `xcodebuild` 皆未簽署(4 旗標);`.ipa` 結構驗證 `Payload/<App>.app/` 在根;產生 `manifest.json` + `GITHUB_OUTPUT`。
+- **`codebase/scripts/export_xcode_project.ps1`** — Windows PowerShell 本機匯出腳本:呼叫 Tuanjie 批次模式 `BuildIOS.Export` 匯出 Xcode 專案,打包為 `xcode-export-<ver>.tar.gz`,可選 `-Upload` 自動上傳至 GitHub Release。前置檢查:iOS Build Support 模組、分塊資料、Tuanjie 未執行中。
+- **`codebase/unity-project/Assets/Editor/BuildIOS.cs`** — Unity Editor 建置腳本(batchmode `-executeMethod BuildIOS.Export` 入口):設定 iOS Player Settings(bundle ID `com.mccmak.hkgridvoxel`、版本、最低 iOS 12.0、IL2CPP、arm64),呼叫 `BuildPipeline.BuildPlayer` 匯出 Xcode 專案。環境變數可覆寫設定。
 
 ## [v2.0.0] - 2026-11-19
 

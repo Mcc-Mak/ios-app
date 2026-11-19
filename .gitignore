@@ -78,6 +78,9 @@ codebase/unity-project/export/
 # 永不提交:可由 Stage A 重新生成,且檔案大(11-NW-15B 約 14 MB)
 codebase/unity-project/Assets/StreamingAssets/Chunks/
 codebase/unity-project/Assets/StreamingAssets/Chunks.meta
+# 分塊資料 / Xcode 匯出 tarball(上傳至 GitHub Release,不提交 git)
+/chunks-*.tar.gz
+/xcode-export-*.tar.gz
 # Unity / Tuanjie 授權檔(機密,永不提交;涵蓋 .ulf 與 .alf 格式)
 *.ulf
 *.ulf.txt
