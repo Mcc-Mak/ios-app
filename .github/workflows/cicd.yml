@@ -164,16 +164,15 @@ jobs:
   build:
     name: 'build:ipa'
     if: github.event_name == 'workflow_dispatch'
-    # macos-14(Apple Silicon, Sonoma)以保留與 Tuanjie 2022.3 IL2CPP 工具鏈相容的
-    # Xcode 15.x。macos-latest 上的 Xcode 26.x 會導致 Tuanjie 2022.3 的 IL2CPP
-    # (.NET 應用程式)在 System.ConsolePal 初始化時崩潰(OutOfMemoryException:
-    # Array dimensions exceeded supported range — .NET 6 在 macOS 14+ 管道環境的已知問題)。
-    runs-on: macos-14
+    runs-on: macos-latest
     permissions:
       contents: write   # 上傳 .ipa / dSYM / manifest.json 至 release
     env:
-      # IL2CPP 為 .NET 應用程式;在無 TTY 的 CI 環境下,ConsolePal 初始化會崩潰。
-      # 設定 TERM 與終端尺寸可避免 .NET 嘗試 ioctl(TIOCGWINSZ) 並配置超大陣列。
+      # IL2CPP 為 .NET 應用程式;在無 TTY 的 CI 環境下,ConsolePal 初始化會崩潰
+      # (OutOfMemoryException: Array dimensions exceeded supported range —
+      # .NET 6 在 macOS 14+ 管道環境的已知問題)。
+      # TERM/COLUMNS/LINES 提供終端尺寸 fallback;build_unity_ipa.sh 另以
+      # script 指令提供 pseudo-TTY 徹底解決。
       TERM: dumb
       COLUMNS: '80'
       LINES: '24'
@@ -184,9 +183,7 @@ jobs:
       - name: 選擇 Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          # Tuanjie 2022.3.61t15(基於 Unity 2022.3.61,2024 年發行)的 IL2CPP 與
-          # Xcode 15.x 配套測試。Xcode 26.x 的工具鏈與 IL2CPP .NET 執行階段不相容。
-          xcode-version: '15.4'
+          xcode-version: latest-stable
 
       - name: 設定腳本為可執行
         run: chmod +x codebase/scripts/*.sh
