@@ -43,6 +43,16 @@ _tmp_*/
 *.osgb
 *.osgb.zip
 *.osgb.7z
+# CSDI 圖幅 zip(使用者會放到儲存庫根目錄,永不提交)
+/11-NW-*.zip
+/11-NE-*.zip
+/11-SW-*.zip
+/11-SE-*.zip
+# 解壓後的圖幅目錄
+/11-NW-*_osgb_extract/
+/11-NE-*_osgb_extract/
+/11-SW-*_osgb_extract/
+/11-SE-*_osgb_extract/
 
 # Unity 專案產物(Stage B/C)
 codebase/unity-project/Library/

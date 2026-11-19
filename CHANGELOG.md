@@ -31,6 +31,22 @@
 - 總三角面 637,565;座標系 EPSG:2326 已置中至圖幅中心 `[35625.42, 20100.076, 119.955]`。
 - `validate_chunks.py` 硬性閘道通過(退出碼 0)。
 
+### 驗證(Stage A,11-NW-15B 圖幅 — 使用者提供之實際資料)
+- 20 個分塊(5×4 網格),全塊保留紋理(每塊 1 張貼圖,稀疏區)。
+- 總大小 **14.16 MB** / 200 MB 預算;最大分塊 **0.76 MB** / 10 MB 預算。
+- 總三角面 ~50,000;`validate_chunks.py` 硬性閘道通過。
+
+### 新增(Stage B 鷹架,待 Unity 編譯驗證)
+- **Unity 6 LTS 專案鷹架(`codebase/unity-project/`)**:Stage B 的 C# 腳本與套件清單,標示為鷹架(scaffold),待使用者安裝 Unity 6 LTS + iOS Build Support 後首次開啟編譯驗證。
+  - `Packages/manifest.json`:`com.unity.cloud.gltfast` 6.0.1 + UGUI/WebRequest 模組。
+  - `Assets/Scripts/ChunkManifest.cs`:Stage A manifest.json 的 Unity 端資料模型(JsonUtility 反序列化)。
+  - `Assets/Scripts/ChunkStreamConfig.cs`:ScriptableObject 設定(載入/卸載半徑、每幀預算、座標轉換)。
+  - `Assets/Scripts/ChunkStreamer.cs`:核心串流器 — `GltfImport.Load` + `InstantiateMainSceneAsync` + `Dispose()`,依攝影機半徑逐塊載入/卸載,`TimeBudgetPerFrameDeferAgent` 限制每幀預算,HK 座標(EPSG:2326 Z-up)經 −90° X 旋轉轉 Y-up。
+  - `Assets/Scripts/ChunkStreamBootstrapper.cs`:場景入口 — 載 manifest、建立串流器、每幀 `Tick()`。
+  - `Assets/Scripts/FlyCameraController.cs`:WASD 飛覽攝影機。
+  - `README.md`:Unity 專案建立、分塊資料放置、座標系轉換、iOS Player Settings(Stage C)、待驗證 API 清單。
+- **待驗證**:glTFast 6.0 API 簽名(`GltfImport` 建構式、`GameObjectInstantiator`、`TimeBudgetPerFrameDeferAgent.frameBudget`、`SetDefaultDeferAgent`),安裝 Unity 後依 Console 編譯錯誤對照官方 API 文件修正。
+
 ### 變更
 - **ADR-006:** 狀態由「已接受」改為「已接受(ADR-010 部分放寬)」,註明 Unity 授權機密的引入範圍。
 - **ADR-007:** 狀態由「已接受」改為「已取代(由 ADR-009 取代)」。

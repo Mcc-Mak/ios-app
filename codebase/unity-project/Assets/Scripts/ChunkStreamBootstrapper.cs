@@ -1,0 +1,116 @@
+// ChunkStreamBootstrapper.cs — 場景入口:載入 manifest、建立串流器、每幀驅動。
+//
+// 使用方式:在入口場景建立空 GameObject,掛上此元件,於 Inspector 指派:
+//   - Config:ChunkStreamConfig 資產(Assets > Create > HKGrid > ChunkStreamConfig)
+//   - Main Camera:主攝影機
+// 執行時自動:
+//   1. 從 StreamingAssets/Chunks/manifest.json 載入 manifest
+//   2. 建立 worldRoot GameObject(套用 Z-up→Y-up 旋轉)
+//   3. 設定全域 glTFast defer agent(TimeBudgetPerFrameDeferAgent)
+//   4. 建立 ChunkStreamer 並每幀 Tick()
+//
+// 鷹架(scaffold):未經 Unity 編譯驗證。安裝 Unity 6 LTS 後首次開啟需驗證。
+
+using System.Collections;
+using System.IO;
+using GLTFast;
+using UnityEngine;
+
+namespace HKGrid.Streaming
+{
+    [RequireComponent(typeof(Camera))]
+    public class ChunkStreamBootstrapper : MonoBehaviour
+    {
+        [Header("設定")]
+        public ChunkStreamConfig config;
+        public new Camera camera;
+
+        [Header("選用:覆寫攝影機起始位置(本地網格座標,公尺)")]
+        public bool overrideStartPos = false;
+        public Vector3 startLocalPos = new Vector3(0f, 80f, 0f); // 預設圖幅中心上空 80m
+
+        private ChunkStreamer _streamer;
+        private Transform _worldRoot;
+        private bool _ready;
+
+        private void Awake()
+        {
+            if (config == null)
+            {
+                Debug.LogError("[Bootstrapper] 未指派 ChunkStreamConfig");
+                enabled = false;
+                return;
+            }
+            if (camera == null) camera = GetComponent<Camera>();
+
+            // 建立全域 defer agent(TimeBudgetPerFrameDeferAgent)給所有 GltfImport 共用
+            var deferGo = new GameObject("glTFast-DeferAgent");
+            deferGo.transform.SetParent(transform);
+            var deferAgent = deferGo.AddComponent<TimeBudgetPerFrameDeferAgent>();
+            // TimeBudgetPerFrameDeferAgent 的 frameBudget 可由 Inspector 調整;
+            // 此處透過 config.gltfFrameBudget 於 Start 中套用
+            GltfImport.SetDefaultDeferAgent(deferAgent);
+
+            // 建立 worldRoot
+            _worldRoot = new GameObject("HKGridWorld").transform;
+            _worldRoot.position = Vector3.zero;
+
+            // 起始攝影機位置(若覆寫):local→world 轉換
+            if (overrideStartPos)
+            {
+                Quaternion yup = config.applyZupToYupRotation
+                    ? Quaternion.Euler(-90f, 0f, 0f) : Quaternion.identity;
+                camera.transform.position = yup * startLocalPos;
+            }
+        }
+
+        private IEnumerator Start()
+        {
+            string manifestPath = Path.Combine(
+                Application.streamingAssetsPath, config.chunksRelativePath, config.manifestFileName);
+            string url = "file://" + manifestPath.Replace('\\', '/');
+
+            // iOS/Editor 透過 UnityWebRequest 讀 manifest(StreamingAssets 在 iOS 為唯讀封裝)
+            using (var req = UnityEngine.Networking.UnityWebRequest.Get(url))
+            {
+                yield return req.SendWebRequest();
+                if (req.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
+                {
+                    Debug.LogError($"[Bootstrapper] manifest 載入失敗: {req.error}\n路徑: {manifestPath}");
+                    yield break;
+                }
+                var manifest = JsonUtility.FromJson<ChunkManifest>(req.downloadHandler.text);
+                Debug.Log($"[Bootstrapper] manifest 載入: {manifest.source}, {manifest.chunkCount} 分塊, " +
+                          $"{manifest.totalBytes / 1e6f:F2} MB, {manifest.totalTriangles:N0} 三角面");
+                Debug.Log($"[Bootstrapper] 授權: {manifest.attribution}");
+
+                // 套用 defer agent frame budget
+                var da = FindObjectOfType<TimeBudgetPerFrameDeferAgent>();
+                if (da != null)
+                {
+                    // TimeBudgetPerFrameDeferAgent.frameBudget 為公開欄位
+                    da.frameBudget = config.gltfFrameBudget;
+                }
+
+                _streamer = new ChunkStreamer(manifest, config, _worldRoot, camera);
+                _ready = true;
+            }
+        }
+
+        private void Update()
+        {
+            if (_ready) _streamer.Tick();
+        }
+
+        private void OnDestroy()
+        {
+            _streamer?.UnloadAll();
+        }
+
+        private void OnDrawGizmosSelected()
+        {
+            if (!config?.drawChunkGizmos ?? false) return;
+            // 可在此繪製載入/卸載半徑;需 manifest 載入後才有意義,省略實作
+        }
+    }
+}
