@@ -1,17 +1,19 @@
 # cicd.yml — iOS 管線(單一工作流程,多個 job)
 #
-# ⚠ 目前狀態(2026-11-19,v2.0.0 架構轉向 Unity):
+# ⚠ 目前狀態(2026-11-19,v2.1.0 過渡架構):
 #   - test:sast / build:ipa / release:ipa 三個 job 已停用(if: false)。
-#     原因:Swift/SceneKit App(codebase/app/)已依 ADR-009 移除,
-#     這三個 job 原本建置該 Swift App,現在無建置標的。
-#   - 待 Stage C 完成後,以 GameCI + Unity 授權機密(ADR-010)重建為
-#     Unity iOS 建置/發行管線。停用期間保留 job 定義作為結構參考。
+#     原因:Tuanjie 授權(.alf)為機器綁定且 4 天有效期,尚未設定為 CI secret。
+#     待授權續期 + UNITY_LICENSE secret 設定後,翻轉 if: false → if: true 啟用。
+#   - 分塊資料(.glb)改以 GitHub Release asset 提供(data-* 標籤,不觸發管線),
+#     建置前由 codebase/scripts/fetch_chunks.sh 下載注入 StreamingAssets/Chunks/。
+#   - 過渡期間:本機手動建置 .ipa + 手動 gh release create;CI 僅負責 deploy:docs。
 #   - deploy:docs 仍獨立執行,維護入口網站與 apps.json 饋流。
 #
 # 階段順序(每個 job 顯示名稱皆為「*:*」):
-#   test:sast    → [停用] 模擬器測試 + 覆蓋率 + CodeQL Swift 靜態分析
-#   build:ipa    → [停用] 建置並打包未簽署 IPA / dSYM / manifest.json
-#   release:ipa  → [停用] 僅標籤 v*:建立 GitHub Release 並附加資產
+#   test:sast    → [停用] Unity 測試(GameCI unity-test-runner)+ CodeQL C#
+#   build:ipa    → [停用] GameCI unity-builder 匯出 iOS → xcodebuild 未簽署封存 → .ipa
+#                  建置前呼叫 fetch_chunks.sh 注入分塊資料
+#   release:ipa  → [停用] 僅標籤 v*:建立 GitHub Release 並附加 .ipa / dSYM / manifest.json
 #   deploy:docs  → 部署入口網站,並由最新 Release 重新產生 apps.json
 #
 # 觸發:
@@ -24,7 +26,7 @@
 # 零 Apple 機密:僅使用內建 GITHUB_TOKEN。所有 xcodebuild 皆未簽署:
 #   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 #   CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""
-#   (Unity 建置階段將引入 Unity 授權 .ulf 機密,見 ADR-010;Apple 簽署仍零)
+#   (Unity 建置階段將引入 Unity 授權 .ulf/.alf 機密,見 ADR-010;Apple 簽署仍零)
 #
 # 一次性儲存庫設定:
 #   Settings → Pages → Build and deployment → Source = GitHub Actions(非分支)

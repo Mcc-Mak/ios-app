@@ -18,6 +18,7 @@ using System.Threading;
 using GLTFast;
 using GLTFast.Logging;
 using UnityEngine;
+// ConsoleLogger 在 GLTFast.Logging 命名空間;GltfImport ctor 需 IDownloadProvider/IDeferAgent/IMaterialGenerator/ICodeLogger
 
 namespace HKGrid.Streaming
 {
@@ -113,7 +114,7 @@ namespace HKGrid.Streaming
             foreach (var (rec, _) in candidates)
             {
                 if (loadsThisFrame >= _config.maxLoadsPerFrame) break;
-                _ = LoadChunkAsync(rec); // fire-and-forget;載入狀態由 _loading 集合守護
+                LoadChunkAsync(rec); // fire-and-forget(async void);載入狀態由 _loading 集合守護
                 loadsThisFrame++;
                 if (_config.logStreamingEvents)
                     Debug.Log($"[ChunkStreamer] 載入 {rec.id} ({rec.bytes / 1e6f:F2} MB, {rec.triangles} tris)");
@@ -125,21 +126,22 @@ namespace HKGrid.Streaming
             _loading.Add(rec.id);
             string path = GetChunkPath(rec.file);
 
-            var importSettings = new ImportSettings
-            {
-                // 行動裝置:避免產生法線貼圖等耗資源項
-                generateNormals = true,
-            };
+            // ImportSettings:glTFast 6.0 的 ImportSettings 無 generateNormals 欄位
+            // (僅有 NodeNameMethod/AnimationMethod/GenerateMipMaps/過濾模式/異向性)。
+            // 法線由網格本身提供(CSDI OSGB 已含法線),不需額外產生。
+            var importSettings = new ImportSettings();
 
-            var gltf = new GltfImport(_deferAgent, _logger);
+            // GltfImport ctor:(IDownloadProvider, IDeferAgent, IMaterialGenerator, ICodeLogger)
+            // 全部可 null;deferAgent 傳入以套用 TimeBudgetPerFrameDeferAgent 每幀預算。
+            var gltf = new GltfImport(
+                downloadProvider: null,
+                deferAgent: _deferAgent,
+                materialGenerator: null,
+                logger: _logger);
             try
             {
-                // iOS/Editor 需 file:// 前綴
-                bool ok;
-                if (path.StartsWith("http") || path.StartsWith("file://"))
-                    ok = await gltf.Load(path, importSettings);
-                else
-                    ok = await gltf.LoadFile(path);
+                // path 已含 file:// 前綴(GetChunkPath 加的),用 Load(url, settings) 多載
+                bool ok = await gltf.Load(path, importSettings);
 
                 if (!ok)
                 {
@@ -147,11 +149,15 @@ namespace HKGrid.Streaming
                     return;
                 }
 
-                // 在 worldRoot 下建立分塊容器節點,本地位置 = 分塊 centroid(已置中座標)
+                // 在 worldRoot 下建立分塊容器節點。
+                // 重要:GLB 頂點已由轉換器置中(全圖幅 origin 已內嵌於頂點座標),
+                // 因此容器節點必須在本地原點(Vector3.zero),不可再偏移 centroid,
+                // 否則會造成雙重偏移 → 分塊散開 150m 間距(「多個島」視覺缺陷)。
                 var chunkGo = new GameObject($"chunk_{rec.id}");
                 chunkGo.transform.SetParent(_worldRoot, worldPositionStays: false);
-                chunkGo.transform.localPosition = rec.CentroidVector;
+                chunkGo.transform.localPosition = Vector3.zero;
 
+                // GameObjectInstantiator ctor:(IGltfReadable, Transform, ICodeLogger, InstantiationSettings)
                 var instantiator = new GameObjectInstantiator(gltf, chunkGo.transform, _logger);
                 ok = await gltf.InstantiateMainSceneAsync(instantiator);
                 if (!ok)

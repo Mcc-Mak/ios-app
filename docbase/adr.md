@@ -107,6 +107,23 @@ timeline
   - 使用者明確接受此放寬(問答中選擇「CI with Unity license secret」)。
   - ADR-006 的 Apple 機密零容忍維持不變;此 ADR 僅放寬 Unity 引擎授權。
 
+## ADR-011：採用 Tuanjie(團結引擎)2022.3.61t15 取代 Unity 6 LTS(修訂 ADR-009)
+
+- **狀態：** 已接受(修訂 ADR-009 的引擎選擇;使用者明確同意)
+- **背景：** ADR-009 原選 Unity 6 LTS。實際安裝時使用者本機僅有 **Tuanjie 2022.3.61t15**(Unity China 的 Unity 2022.3 LTS 中國分支,安裝於 `C:\Program Files\Tuanjie 2022.3.61t15\`)。本機無 Unity 6 LTS,且使用者選擇以既有 Tuanjie 繼續(問答中選「用 Tuanjie 2022.3 繼續」)。
+- **內容：** Stage B/C 改用 Tuanjie 2022.3.61t15 作為編輯器與建置引擎。三階段管線架構(Stage A Python / Stage B Unity 串流 / Stage C iOS 封裝)不變;glTFast 6.0.1 套件在 Tuanjie 2022.3 上經實測可正常安裝與編譯。
+- **與 ADR-009 的差異:**
+  - **版本基礎:** Unity 2022.3 LTS(非 Unity 6 LTS)。API 大致相容(同 C# 版本、同 UPM 套件系統、glTFast 6.0.1 支援 2021.3+)。Unity 6 新 API(如 `Awaitable`、新版 SRP)在 Tuanjie 上不可用;Stage B 鷹架未使用這些,故無影響。
+  - **授權模式:** Tuanjie 用 Unity China 授權伺服器(`license.tuanjie.cn`),非 Unity Global(`license.unity3d.com`)。授權檔格式仍為 `.ulf`(與 Unity 相同,機器綁定),但 **`seat_required: true`**(需有 seat 才能啟用)。Personal 免費版可用,4 天有效期,到期需重新啟用。本機啟用後 `.ulf` 落地於 `C:\ProgramData\Tuanjie\Tuanjie_lic.ulf`(系統目錄,非使用者設定檔)。
+  - **CI 授權(放寬 ADR-010):** ADR-010 假設 `.ulf` 放 GitHub secret 即可讓 GameCI 在 Actions runner 上啟用。Tuanjie 的 `seat_required` 模式與機器綁定使此假設需實測驗證 — fork/CI runner 上的 seat 啟用流程待 Stage C 重建 CI 時確認。可能的替代方案:(a) Tuanjie 浮動授權服務;(b) 自架 macOS runner。此不確定性記錄於此,不阻塞 Stage B。
+  - **iOS Build Support:** Tuanjie 安裝時未含 iOS 模組(僅 `windowsstandalonesupport`)。Stage C 封裝 `.ipa` 前需另案安裝 Tuanjie 的 iOS Build Support(透過 Tuanjie 官方安裝器,非 Unity Hub)。Stage B 編譯與 Play 測試不需要 iOS 模組。
+- **決策理由:** 使用者本機已有 Tuanjie 且明確選擇繼續;重裝 Unity 6 LTS + iOS 模組(5–8 GB 下載 + 額外授權啟用)成本高且重複。Tuanjie 2022.3 對 Stage B 的 glTFast 串流場景已足夠;Unity 6 專屬功能非本專案所需。
+- **後果：**
+  - **Stage B 編譯驗證通過:** 5 個 C# 腳本在 Tuanjie 2022.3.61t15 + glTFast 6.0.1 上零錯誤零警告編譯(初次有 5 個 CS 錯誤,均為 glTFast 6.0 實際 API 與鷹架假設不符,已修正)。
+  - **`ProjectVersion.txt` 改為 `2022.3.61t15`**(非 Unity 6 LTS 版本號)。
+  - **檔案標記差異:** Tuanjie 產生的 `.unity`/`.asset` 檔使用 `%TAG !u! tag:yousandi.cn,2023:`(Tuanjie 的命名空間),與 Unity 的 `tag:unity3d.com` 不同。對 Tuanjie 內部處理無影響,但跨引擎遷移時需注意。
+  - **ADR-009 的「Unity 6 LTS」字樣應理解為「Tuanjie 2022.3 LTS」**;本 ADR 為正式修訂紀錄。Stage C 完成後若評估 Tuanjie 的 iOS 模組/CI 授權不可行,可再以新 ADR 切回 Unity 6 LTS。
+
 ---
 
 ## 關聯文件

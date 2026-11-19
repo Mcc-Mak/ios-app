@@ -27,7 +27,7 @@ namespace HKGrid.Streaming
 
         [Header("選用:覆寫攝影機起始位置(本地網格座標,公尺)")]
         public bool overrideStartPos = false;
-        public Vector3 startLocalPos = new Vector3(0f, 80f, 0f); // 預設圖幅中心上空 80m
+        public Vector3 startLocalPos = new Vector3(0f, 0f, 80f); // 預設圖幅中心上空 80m(Z-up 本地座標)
 
         private ChunkStreamer _streamer;
         private Transform _worldRoot;
@@ -47,9 +47,14 @@ namespace HKGrid.Streaming
             var deferGo = new GameObject("glTFast-DeferAgent");
             deferGo.transform.SetParent(transform);
             var deferAgent = deferGo.AddComponent<TimeBudgetPerFrameDeferAgent>();
-            // TimeBudgetPerFrameDeferAgent 的 frameBudget 可由 Inspector 調整;
-            // 此處透過 config.gltfFrameBudget 於 Start 中套用
+            // TimeBudgetPerFrameDeferAgent 的 frameBudget 可由 SetFrameBudget(float) 調整;
+            // 此處透過 config.gltfFrameBudget 於 Start 中套用。
+            // SetDefaultDeferAgent 讓後續 new GltfImport(...) 自動套用此 agent。
             GltfImport.SetDefaultDeferAgent(deferAgent);
+
+            // 設定目標幀率,讓 TimeBudgetPerFrameDeferAgent 的 frameBudget(幀時間比例)有意義。
+            // 預設 -1 會讓 agent 退回 30 FPS 假設;設為 30 讓 0.2 = 6.6ms 預算。
+            Application.targetFrameRate = 30;
 
             // 建立 worldRoot
             _worldRoot = new GameObject("HKGridWorld").transform;
@@ -85,11 +90,12 @@ namespace HKGrid.Streaming
                 Debug.Log($"[Bootstrapper] 授權: {manifest.attribution}");
 
                 // 套用 defer agent frame budget
+                // TimeBudgetPerFrameDeferAgent.frameBudget 為 private 欄位;
+                // 透過公開方法 SetFrameBudget(float) 設定(參數為「目標幀時間的比例」,0.5 = 半幀)
                 var da = FindObjectOfType<TimeBudgetPerFrameDeferAgent>();
                 if (da != null)
                 {
-                    // TimeBudgetPerFrameDeferAgent.frameBudget 為公開欄位
-                    da.frameBudget = config.gltfFrameBudget;
+                    da.SetFrameBudget(config.gltfFrameBudget);
                 }
 
                 _streamer = new ChunkStreamer(manifest, config, _worldRoot, camera);

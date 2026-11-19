@@ -90,10 +90,16 @@ class ChunkRecord:
 
 
 # ────────────────────────── Stage 1: 探索 OSGB 結構 ──────────────────────────
-def discover_subtiles(input_path: Path, work_dir: Path) -> tuple[Path, list[SubTile]]:
+def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tuple[Path, list[SubTile]]:
     """
     輸入可能是 .zip 或已解壓目錄。回傳 (根目錄, 子圖幅清單)。
     預期結構:<root>/<SheetNo>-<N>/Tile_+X_+Y.osgb(+ LOD 子檔)
+
+    lod 選擇:
+      "root" — 最粗 LOD(檔名不含 _L)。最小,但建物無牆面(堆疊水平平板)。
+      "l15"  — 第 15 層 LOD(檔名含 _L15_)。
+      "l16"  — 第 16 層 LOD(檔名含 _L16_)。建物有真正牆面,視覺顯著改善。
+      每個子圖幅的 root/l15/l16 皆為單一 .osgb 檔(L17+ 才分裂為四元樹多檔)。
     """
     if input_path.is_file() and input_path.suffix.lower() == ".zip":
         extract_dir = work_dir / "osgb_extract"
@@ -112,6 +118,12 @@ def discover_subtiles(input_path: Path, work_dir: Path) -> tuple[Path, list[SubT
 
     log.info("OSGB 根目錄: %s", root)
 
+    # LOD 選擇:root = 檔名不含 _L;l15/l16 = 檔名含 _L15_/_L16_
+    if lod == "root":
+        lod_token = None  # 不含 _L
+    else:
+        lod_token = f"_L{lod[1:]}_"  # e.g. "_L16_"
+
     subtiles: list[SubTile] = []
     for d in sorted(root.iterdir()):
         if not d.is_dir():
@@ -120,17 +132,24 @@ def discover_subtiles(input_path: Path, work_dir: Path) -> tuple[Path, list[SubT
         if not m:
             continue
         idx = int(m.group(2))
-        # 找根 .osgb(檔名不含 _L)
-        roots = sorted([f for f in d.iterdir()
-                        if f.suffix.lower() == ".osgb" and "_L" not in f.name])
+        if lod_token is None:
+            # root: 檔名不含 _L
+            roots = sorted([f for f in d.iterdir()
+                            if f.suffix.lower() == ".osgb" and "_L" not in f.name])
+        else:
+            # l15/l16: 檔名含 _L<N>_
+            roots = sorted([f for f in d.iterdir()
+                            if f.suffix.lower() == ".osgb" and lod_token in f.name])
         if not roots:
+            log.warning("子圖幅 %s 找不到 LOD=%s 的 .osgb(跳過)", d.name, lod)
             continue
-        rm = re.match(r"Tile_\+(-?\d+)_\+(-?\d+)\.osgb$", roots[0].name)
+        # 座標從檔名解析(root 與 L16 命名一致:Tile_+X_+Y[_L16_NN].osgb)
+        rm = re.match(r"Tile_\+(-?\d+)_\+(-?\d+)", roots[0].name)
         if not rm:
             log.warning("無法解析子圖幅座標: %s", roots[0].name)
             continue
         tile_x, tile_y = int(rm.group(1)), int(rm.group(2))
-        # 收集 LOD 子檔(若需要更細 LOD)
+        # 收集所有 LOD 子檔(供參考)
         lod_files = sorted([f for f in d.iterdir()
                             if f.suffix.lower() == ".osgb" and "_L" in f.name])
         subtiles.append(SubTile(
@@ -139,9 +158,9 @@ def discover_subtiles(input_path: Path, work_dir: Path) -> tuple[Path, list[SubT
         ))
 
     if not subtiles:
-        raise ValueError(f"在 {root} 下找不到任何子圖幅目錄")
+        raise ValueError(f"在 {root} 下找不到任何子圖幅目錄(LOD={lod})")
 
-    log.info("發現 %d 個子圖幅", len(subtiles))
+    log.info("發現 %d 個子圖幅(LOD=%s)", len(subtiles), lod)
     return root, subtiles
 
 
@@ -316,6 +335,114 @@ def build_chunk_glb(
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise RuntimeError(f"簡化後 OBJ 無有效網格: {obj_path}")
 
+    # 5a. Mesh cleanup:移除孤立小元件(spike/雜訊)。
+    # 攝影測量資料常有飛散三角形(spike),以「連通元件面數 < 門檻」過濾。
+    # 門檻取 max(20, 總面數 0.5%);低於此的元件視為雜訊移除。
+    cleaned: list[trimesh.Trimesh] = []
+    total_faces_pre = 0
+    total_faces_post = 0
+    for g in geometries:
+        total_faces_pre += len(g.faces)
+        # trimesh.split 需 networkx;改用 face_adjacency 自行找連通元件
+        try:
+            import scipy.sparse as sp
+            import scipy.sparse.csgraph as csg
+            # 建 face-adjacency graph(共邊的 face 互連)
+            edges = g.face_adjacency  # (F1, F2) pairs sharing an edge
+            n = len(g.faces)
+            if n > 0 and len(edges) > 0:
+                row = np.concatenate([e[0] for e in edges] + [e[1] for e in edges])
+                col = np.concatenate([e[1] for e in edges] + [e[0] for e in edges])
+                data = np.ones(len(row), dtype=np.int8)
+                adj = sp.csr_matrix((data, (row, col)), shape=(n, n))
+                n_comp, labels = csg.connected_components(adj, directed=False)
+                comp_sizes = np.bincount(labels)
+                threshold = max(20, int(n * 0.005))  # 0.5% 或至少 20 面
+                keep_mask = comp_sizes[labels] >= threshold
+                if keep_mask.sum() < n:
+                    # trimesh 5.x submesh() 回傳 Trimesh 而非 list,改用 update_faces 保留紋理
+                    g = g.copy()
+                    g.update_faces(keep_mask)
+                    log.debug("  cleanup: 移除 %d 個小元件(<%d 面),保留 %d/%d 面",
+                              n_comp - len(np.unique(labels[keep_mask])),
+                              threshold, len(g.faces), n)
+        except ImportError:
+            pass  # scipy 不可用則跳過 cleanup
+        except Exception as e:
+            log.debug("  cleanup 跳過(%s)", e)
+        if hasattr(g, "faces") and len(g.faces) > 0:
+            cleaned.append(g)
+            total_faces_post += len(g.faces)
+    geometries = cleaned
+    if total_faces_pre != total_faces_post:
+        log.debug("  cleanup 總計: %d → %d faces (移除 %d 雜訊面)",
+                  total_faces_pre, total_faces_post, total_faces_pre - total_faces_post)
+
+    # 5b. 浮空地面移除(floating-ground removal)。
+    # CSDI 攝影測量資料在同一 XY 位置常有多層水平面(地面 + 浮空層 + 屋頂),
+    # 全貼同一張空拍紋理 → 視覺上像多層「地面疊地面」(用户稱「4 個島」)。
+    #
+    # 演算法(KDTree 局部最低 Z):
+    #   1. 對每個水平面,以 KDTree 查 35m 半徑內所有水平面,取最低 Z = 局部地面
+    #   2. 若面 Z − 局部地面 Z 在 3~20m → 浮空層,移除
+    #   3. 保留:地面(dz<3m)+ 屋頂(dz>20m)
+    #
+    # 35m → 50m 半徑:地面層約覆蓋 60% 面積,50m 可涵蓋 ~78% 浮空面;
+    # 邊界外(>50m 無地面)的浮空面視為該區域的地面,保留。
+    from scipy.spatial import cKDTree
+    R = 50.0  # m,局部地面搜尋半徑
+    MIN_DZ = 3.0  # m,高於局部地面此值才視為浮空
+    MAX_DZ = 20.0  # m,高於此值視為屋頂,保留
+    deduped: list[trimesh.Trimesh] = []
+    removed_floating = 0
+    for g in geometries:
+        n = len(g.faces)
+        if n < 10:
+            deduped.append(g)
+            continue
+        try:
+            tri_verts = np.asarray(g.vertices)[np.asarray(g.faces)]  # (N, 3, 3)
+            v0, v1, v2 = tri_verts[:, 0], tri_verts[:, 1], tri_verts[:, 2]
+            cross = np.cross(v1 - v0, v2 - v0)
+            norms = np.linalg.norm(cross, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            fn = cross / norms  # (N, 3) 正規化面法線
+            fc = tri_verts.mean(axis=1)  # (N, 3) 面心
+
+            horiz = np.abs(fn[:, 2]) > 0.85
+            if horiz.sum() < 20:
+                deduped.append(g)
+                continue
+            horiz_idx = np.where(horiz)[0]
+            h_xy = fc[horiz_idx, :2]
+            h_z = fc[horiz_idx, 2]
+
+            # KDTree 查每個水平面 35m 半徑內的所有水平面,取最低 Z
+            tree = cKDTree(h_xy)
+            float_mask = np.zeros(n, dtype=bool)
+            for ii, face_i in enumerate(horiz_idx):
+                neighbors = tree.query_ball_point(h_xy[ii], r=R)
+                if len(neighbors) > 0:
+                    local_min = float(h_z[neighbors].min())
+                    dz = float(h_z[ii]) - local_min
+                    if MIN_DZ <= dz <= MAX_DZ:
+                        float_mask[face_i] = True
+
+            n_float = int(float_mask.sum())
+            if n_float > 0:
+                keep = ~float_mask
+                g = g.copy()
+                g.update_faces(keep)
+                removed_floating += n_float
+                log.debug("  浮空地面移除: %d faces (50m 半徑內 3-20m 浮空層)", n_float)
+        except Exception as e:
+            log.debug("  浮空地面移除跳過(%s)", e)
+        if hasattr(g, "faces") and len(g.faces) > 0:
+            deduped.append(g)
+    geometries = deduped
+    if removed_floating > 0:
+        log.info("  浮空地面移除總計: %d faces", removed_floating)
+
     for g in geometries:
         g.vertices = g.vertices - recenter
         _downscale_textures(g, max_texture_px)
@@ -449,8 +576,10 @@ def main() -> int:
                    help="紋理最長邊像素")
     p.add_argument("--decimate-threshold", type=int, default=3000,
                    help="低於此三角面數的網格不簡化(保留紋理/UV)")
-    p.add_argument("--lod", choices=["root", "root+l15", "root+l16"], default="root",
-                   help="LOD 層級(root=最粗,最小;root+l16=中等細節)")
+    p.add_argument("--lod", choices=["root", "l15", "l16"], default="root",
+                   help="LOD 層級:root=最粗(建物無牆面,堆疊平板);l15=第15層;"
+                        "l16=第16層(建物有真正牆面,視覺顯著改善,推薦)。"
+                        "每子圖幅 root/l15/l16 各為單一 .osgb 檔")
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args()
 
@@ -486,9 +615,9 @@ def main() -> int:
     work_dir.mkdir(exist_ok=True)
 
     # Stage 1: 探索
-    root, subtiles = discover_subtiles(input_path, work_dir)
+    root, subtiles = discover_subtiles(input_path, work_dir, lod=args.lod)
     sheet_name = _guess_sheet_name(root)
-    log.info("圖幅: %s,子圖幅數: %d", sheet_name, len(subtiles))
+    log.info("圖幅: %s,子圖幅數: %d,LOD: %s", sheet_name, len(subtiles), args.lod)
 
     neighbors_map = compute_neighbors(subtiles)
 

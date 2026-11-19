@@ -9,6 +9,48 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.1.0] - 2026-11-19
+
+### 重大變更
+- **引擎由 Unity 6 LTS 改為 Tuanjie(團結引擎)2022.3.61t15。** 使用者本機僅有 Tuanjie(Untiy China 的 Unity 2022.3 LTS 中國分支),且明確選擇以既有引擎繼續。**ADR-011** 修訂 ADR-009 的引擎選擇;三階段管線架構不變,glTFast 6.0.1 套件在 Tuanjie 2022.3 上經實測可正常安裝與編譯。
+
+### 新增
+- **Stage B 編譯驗證通過(Tuanjie 2022.3.61t15 + glTFast 6.0.1)。** 以 `Tuanjie.exe -batchmode -nographics` 跑無頭編譯,5 個 C# 腳本零錯誤零警告編譯完成(初次 5 個 CS 錯誤已修正,均為 glTFast 6.0 實際 API 與鷹架假設不符)。
+  - 修正清單:
+    1. `ChunkStreamer.cs`:`_ = LoadChunkAsync(rec)` → `LoadChunkAsync(rec)`(`async void` 不可賦值,CS8209)。
+    2. `ChunkStreamBootstrapper.cs`:`da.frameBudget = x` → `da.SetFrameBudget(x)`(`frameBudget` 為 private 欄位,用公開方法,CS1061)。
+    3. `ChunkStreamer.cs`:`ImportSettings.generateNormals = true` 移除(`ImportSettings` 在 glTFast 6.0 無此欄位,CS0117)。
+    4,5. `ChunkStreamer.cs`:`GltfImport` ctor 改用具名參數 `(downloadProvider: null, deferAgent: _deferAgent, materialGenerator: null, logger: _logger)`,對應實際簽名 `(IDownloadProvider, IDeferAgent, IMaterialGenerator, ICodeLogger)`(CS1503)。
+  - `ChunkStreamConfig.gltfFrameBudget` 語義修正:從「秒」改為「目標幀時間比例」(glTFast 實際語義),預設 0.2(占 20% 幀時間)。
+- **入口場景自動化(`Assets/Editor/SetupScene.cs` + `Assets/Scenes/Main.unity` + `Assets/Configs/ChunkStreamConfig.asset`)。** Editor 腳本由 batchmode `-executeMethod` 執行,冪等建立入口場景(Main Camera + ChunkStreamBootstrapper + FlyCameraController + 方向光)+ Config 資產,並將 Main.unity 設為 BuildSettings scene 0。
+- **Stage B 資料層測試腳本(`Assets/Editor/TestChunkLoad.cs`)。** 由 batchmode 執行,驗證 manifest.json 反序列化 + 第一個 .glb 分塊的 glTFast `LoadFile` + `InstantiateMainSceneAsync` + `Dispose` 完整鏈路(以反射存取 `HKGrid.Streaming.ChunkManifest`,避免 Editor assembly 跨 assembly 參考)。
+- **11-NW-15B 分塊資料複製至 `Assets/StreamingAssets/Chunks/`**(20 個 .glb + manifest.json,14 MB),供 Stage B Play-mode 串流測試。已 `.gitignore` 排除(build artifact,可由 Stage A 重新生成)。
+- **ADR-011:Tuanjie 取代 Unity 6 LTS** — 記錄引擎版本差異(2022.3 vs 6 LTS)、授權模式差異(Unity China `license.tuanjie.cn` + `seat_required: true` + 4 天有效期)、iOS Build Support 缺失(僅 windowsstandalonesupport)、`.unity`/`.asset` 檔 `%TAG !u! tag:yousandi.cn,2023:` 命名空間差異。
+- **`ProjectSettings/ProjectVersion.txt`** 預建(`m_EditorVersion: 2022.3.61t15`),讓 Tuanjie 首次開啟專案時不抱怨版本不符。
+- **`ProjectSettings/ProjectSettings.asset`**:`companyName` 由 `DefaultCompany` 改為 `McCmak`,`productName` 由 `unity-project` 改為 `HKGridVoxel`。
+
+### 變更
+- **`.gitignore`** 擴充:排除 `Assets/StreamingAssets/Chunks/`(Stage A 分塊資料,build artifact)+ Tuanjie 授權相關檔案(`*.hasp`、`*.ulf`、`*.alf`、`Tuanjie_v*.ulf`、`Tuanjie_v*.alf` 等)。
+- **`docbase/adr.md`**:新增 ADR-011;ADR-009 的「Unity 6 LTS」字樣應理解為「Tuanjie 2022.3 LTS」(由 ADR-011 正式修訂)。
+
+### 修正(Stage A — L16 LOD 與浮空地面移除)
+- **LOD 由 root 改為 L16。** Root LOD 之建築物僅為水平堆疊平板(無牆面),視覺上像「3 層地面」;L16 LOD 含 19–32% 垂直牆面=真實 3D 建築。11-NW-15B 圖幅由 14 MB / 47,401 三角面(root)增至 24.80 MB / 201,969 三角面(L16)。
+- **浮空地面移除(KDTree 局部最低 Z 演算法)。** CSDI 攝影測量資料在同一 XY 位置常有多層水平面(地面 + 浮空層 + 屋頂),全貼同一張空拍紋理 → 視覺上像「地面疊地面」(使用者稱「4 個島」)。演算法:對每個水平面以 KDTree 查 50m 半徑內所有水平面之最低 Z,若面 Z 高出局部地面 3~20m 則移除(保留地面 dz<3m + 屋頂 dz>20m)。11-NW-15B 圖幅移除 40,165 面(19.9%),總三角面 201,969 → 161,804,總大小 24.80 → 19.72 MB。
+  - `trimesh 5.x` API 修正:`submesh()[0]` 改為 `update_faces()`(submesh 回傳 Trimesh 非 list,`[0]` 觸發 `'Trimesh' object is not subscriptable`)。
+- **`convert_osgb_to_chunks.py` 新增 `--lod {root,l15,l16}` 選項**(預設 l16)。
+
+### 修正(Stage B — 雙重偏移與攝影機位置)
+- **分塊雙重偏移 bug(「4 個島」根因)。** `ChunkStreamer.cs:155` 原先將分塊容器節點設為 `localPosition = centroid`,但 GLB 頂點已由轉換器置中(全圖幅 origin 已內嵌於頂點座標),導致雙重偏移 → 分塊散開 150m 間距(4 列 × 5 行散成 4 個獨立島)。修正為 `localPosition = Vector3.zero`。
+- **攝影機起始位置 bug。** `startLocalPos = (0, 80, 0)` 在 Z-up 本地座標意為「向北 80m」,經 −90° X 旋轉後 = 世界 `(0, 0, −80)` = 地下 80m。修正為 `(0, 0, 80)` = 向上 80m → 世界 `(0, 80, 0)` = 地面 80m 上空俯視。修正於 `ChunkStreamBootstrapper.cs`、`SetupScene.cs`、`Main.unity`。
+
+### 新增(分塊資料注入架構)
+- **分塊資料改以 GitHub Release asset 提供,不提交 git。** `.glb` 分塊(19.72 MB)打包為 `chunks-<dataset>.tar.gz`,上傳至專屬 data release(標籤 `data-*`,不觸發 app 發行管線)。建置前由 `fetch_chunks.sh` 下載並解壓至 `StreamingAssets/Chunks/`。本機與 CI 建置共用同一注入流程。
+- **`codebase/scripts/fetch_chunks.sh`** — 從 GitHub Release 下載 `chunks-*.tar.gz` 並解壓至 `StreamingAssets/Chunks/`。使用 `gh release download`(CI 由 `GITHUB_TOKEN` 自動認證,本機需 `gh auth login`)。驗證 manifest.json 存在 + .glb 計數。
+- **`DISTRICT-TO-TILENAME.md`**(儲存庫根目錄)— 香港行政區 → CSDI 圖幅名稱對照表(11 區,數百個圖幅),供選取目標圖幅時參考。
+
+### 變更(CI)
+- **`cicd.yml`** 標頭註解更新:記錄「data release + fetch 注入 + 本機建置 + CI 部署」過渡架構。`test`/`build`/`release` job 維持 `if: false`(待 Tuanjie 授權續期 + `UNITY_LICENSE` secret 設定後啟用);`deploy:docs` 維持獨立執行。
+
 ## [v2.0.0] - 2026-11-19
 
 ### 重大變更

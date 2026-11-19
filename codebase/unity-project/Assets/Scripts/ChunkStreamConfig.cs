@@ -31,8 +31,9 @@ namespace HKGrid.Streaming
         public int maxUnloadsPerFrame = 2;
 
         [Header("glTFast 載入")]
-        [Tooltip("每幀 glTFast 載入預算(秒)。TimeBudgetPerFrameDeferAgent 的 frameBudget")]
-        public float gltfFrameBudget = 0.03f; // ~30 FPS 下保留 30ms 預算給載入
+        [Tooltip("每幀 glTFast 載入預算,為「目標幀時間的比例」(0.0–1.0)。0.1 = 占目標幀時間 10%。TimeBudgetPerFrameDeferAgent.SetFrameBudget 的參數。行動裝置建議 0.1–0.25")]
+        [Range(0.01f, 1f)]
+        public float gltfFrameBudget = 0.2f; // 占目標幀時間 20%(30 FPS 下約 6.6 ms)
 
         [Tooltip("是否在載入時快取 GltfImport(同一檔案重複載入較快)。行動裝置記憶體有限,預設關閉")]
         public bool cacheGltfImports = false;

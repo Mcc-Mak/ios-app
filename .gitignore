@@ -74,7 +74,19 @@ codebase/unity-project/.vsconfig
 # Unity Xcode 匯出(Stage C,由建置產生)
 codebase/unity-project/Unity-iPhone/
 codebase/unity-project/export/
-# Unity .ulf 授權檔(機密,永不提交)
+# Stage A 分塊資料(由轉換器產生,複製進 StreamingAssets 供 Stage B 串流測試)
+# 永不提交:可由 Stage A 重新生成,且檔案大(11-NW-15B 約 14 MB)
+codebase/unity-project/Assets/StreamingAssets/Chunks/
+codebase/unity-project/Assets/StreamingAssets/Chunks.meta
+# Unity / Tuanjie 授權檔(機密,永不提交;涵蓋 .ulf 與 .alf 格式)
 *.ulf
 *.ulf.txt
+*.alf
+*.alf.txt
 Unity_v*.ulf
+Tuanjie_v*.ulf
+Tuanjie_v*.alf
+# Tuanjie 授權相關(Sentinel HASP / 授權快取,同樣不提交)
+*.hasp
+*.hasp_dump
+Tuanjie_*.json.lock
