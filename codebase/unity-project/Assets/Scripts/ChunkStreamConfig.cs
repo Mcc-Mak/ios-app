@@ -18,12 +18,15 @@ namespace HKGrid.Streaming
         public string manifestFileName = "manifest.json";
 
         [Header("空間串流半徑(公尺,本地座標)")]
-        [Tooltip("攝影機在此半徑內的分塊會被載入。合併 4 圖幅(~1350×1050m)," +
-                 "攝影機在 15B 中心時需 ≥1000m 才能載入 15A/15C 邊緣分塊")]
-        public float loadRadius = 1000f;
+        [Tooltip("攝影機在此半徑內的分塊會被載入。v2.2.3: 400m 限制可視範圍," +
+                 "降低 iPhone 渲染負載(原 1000m 導致 iPhone 17e 卡死)")]
+        public float loadRadius = 400f;
 
         [Tooltip("超過此半徑的已載入分塊會被卸載。應 > loadRadius + 一個分塊寬度(~150m)以避免邊界抖動")]
-        public float unloadRadius = 1350f;
+        public float unloadRadius = 550f;
+
+        [Tooltip("攝影機遠裁剪面(公尺)。超過此距離的分塊不渲染。v2.2.3: 450m 搭配霧遮蔽彈出")]
+        public float cameraFarClip = 450f;
 
         [Tooltip("每幀最多新增載入的分塊數(避免一次載入太多造成卡頓)")]
         public int maxLoadsPerFrame = 1;
@@ -34,7 +37,7 @@ namespace HKGrid.Streaming
         [Header("glTFast 載入")]
         [Tooltip("每幀 glTFast 載入預算,為「目標幀時間的比例」(0.0–1.0)。0.1 = 占目標幀時間 10%。TimeBudgetPerFrameDeferAgent.SetFrameBudget 的參數。行動裝置建議 0.1–0.25")]
         [Range(0.01f, 1f)]
-        public float gltfFrameBudget = 0.2f; // 占目標幀時間 20%(30 FPS 下約 6.6 ms)
+        public float gltfFrameBudget = 0.15f; // v2.2.3: 20%→15%,降低載入卡頓
 
         [Tooltip("是否在載入時快取 GltfImport(同一檔案重複載入較快)。行動裝置記憶體有限,預設關閉")]
         public bool cacheGltfImports = false;

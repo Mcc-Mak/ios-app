@@ -69,7 +69,7 @@ namespace HKGrid.Editor
                 cam.clearFlags = CameraClearFlags.SolidColor;
                 cam.backgroundColor = new Color(0.5f, 0.7f, 0.9f, 1f); // 淡藍天色
                 cam.nearClipPlane = 0.5f;
-                cam.farClipPlane = 2000f;
+                cam.farClipPlane = 450f;  // v2.2.3: 限制可視距離(原 2000m)
                 cam.transform.position = new Vector3(0f, 80f, 0f); // 圖幅中心上空 80m(Y-up)
                 cam.transform.rotation = Quaternion.Euler(60f, 0f, 0f); // 俯視
                 Debug.Log("[SetupScene] 建立 Main Camera");
@@ -111,18 +111,21 @@ namespace HKGrid.Editor
             }
 
             // 6b. 強制更新 TouchPlayerController 欄位(覆寫舊場景殘留的 v2.2.0 預設值)
-            //     舊值 groundRaycastHeight=100 會讓射線從 100m 高處打下,打到屋頂/自身膠囊
-            //     →「看上方=飄起、看下方=墜落」問題
+            //     v2.2.3: startPosition 不再硬編——由 Bootstrapper 載入 manifest 後透過 OnSpawned() 設定。
+            //     此處保留值僅為 fallback;groundRaycastLength 50→250(舊值太短,spawn 高處打不到地面)
             player.groundRaycastHeight = 2f;
-            player.groundRaycastLength = 50f;
-            player.startPosition = new Vector3(947f, 0f, -124f);
+            player.groundRaycastLength = 250f;
+            player.maxYSnapPerFrame = 80f;
             player.startPitch = 25f;
             player.startYaw = 0f;
             EditorUtility.SetDirty(player);
 
             // 6c. 強制更新 Config 值(確保舊資產也套用新參數)
-            config.loadRadius = 1000f;
-            config.unloadRadius = 1350f;
+            // v2.2.3: loadRadius 1000→400、unloadRadius 1350→550(限制可視範圍,降低 iPhone 負載)
+            config.loadRadius = 400f;
+            config.unloadRadius = 550f;
+            config.cameraFarClip = 450f;
+            config.gltfFrameBudget = 0.15f;
             config.addChunkColliders = true;
             EditorUtility.SetDirty(config);
 
@@ -138,6 +141,14 @@ namespace HKGrid.Editor
                 dir.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
                 Debug.Log("[SetupScene] 建立方向光");
             }
+
+            // 7a. v2.2.3: 霧設定(隱藏遠處分塊彈出,搭配 cameraFarClip=450)
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.Linear;
+            RenderSettings.fogStartDistance = 350f;
+            RenderSettings.fogEndDistance = 450f;
+            RenderSettings.fogColor = new Color(0.5f, 0.7f, 0.9f, 1f); // 淡藍天色
+            Debug.Log("[SetupScene] 霧設定: 350-450m 線性");
 
             // 8. 儲存場景
             EditorSceneManager.SaveScene(scene, ScenePath);

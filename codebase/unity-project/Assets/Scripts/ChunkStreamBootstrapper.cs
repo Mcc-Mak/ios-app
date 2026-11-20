@@ -99,6 +99,51 @@ namespace HKGrid.Streaming
                 }
 
                 _streamer = new ChunkStreamer(manifest, config, _worldRoot, camera);
+
+                // ── v2.2.3: 從 manifest 自動推導起始位置(不再硬編)──
+                // 單圖幅(15B-only)manifest 原點 = 15B centroid;多圖幅(merged)原點 = 15A centroid。
+                // 硬編 startPosition=(947,0,-124) 僅對多圖幅正確;單圖幅時攝影機落在圖幅外 → 無分塊 → 墜落。
+                Vector3 startLocal;
+                if (manifest.chunkCount <= 25)
+                {
+                    // 單圖幅:所有分塊 centroid 的平均 = manifest 中心
+                    startLocal = Vector3.zero;
+                    foreach (var c in manifest.chunks)
+                        startLocal += c.CentroidVector;
+                    startLocal /= manifest.chunks.Count;
+                    Debug.Log($"[Bootstrapper] 單圖幅模式:起始位置 = manifest 中心 {startLocal}");
+                }
+                else
+                {
+                    // 多圖幅:15B 中心(九龍城區 WGS84 [22.3319, 114.1871] → manifest-local)
+                    startLocal = new Vector3(947f, 0f, 124f);
+                    Debug.Log($"[Bootstrapper] 多圖幅模式:起始位置 = 15B 中心 {startLocal}");
+                }
+
+                // 轉換至 Unity 世界座標(Z-up→Y-up)
+                Quaternion yup = config.applyZupToYupRotation
+                    ? Quaternion.Euler(-90f, 0f, 0f) : Quaternion.identity;
+                Vector3 startWorld = yup * startLocal;
+
+                // 設定攝影機並觸發 TouchPlayerController 初始地面搜尋
+                var player = camera.GetComponent<TouchPlayerController>();
+                if (player != null)
+                {
+                    player.OnSpawned(startWorld);
+                }
+                else
+                {
+                    camera.transform.position = startWorld + Vector3.up * 50f;
+                }
+
+                // v2.2.3: 設定可視距離 + 霧(隱藏遠處分塊彈出,降低渲染負載)
+                camera.farClipPlane = config.cameraFarClip;
+                RenderSettings.fog = true;
+                RenderSettings.fogMode = FogMode.Linear;
+                RenderSettings.fogStartDistance = config.cameraFarClip * 0.78f;  // ~350m
+                RenderSettings.fogEndDistance = config.cameraFarClip;             // ~450m
+                RenderSettings.fogColor = camera.backgroundColor;  // 與天色一致
+
                 _ready = true;
             }
         }

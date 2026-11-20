@@ -9,6 +9,46 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.3] - 2026-11-20
+
+### 修正(iPhone 17e 卡死 + Play mode 穿模墜落 + 地面洞孔)
+
+- **iPhone 17e 部署後卡死強制關閉。** 根因:IPA 包含 4 圖幅 L18 分塊(522 MB、6.19M 三角面),
+  載入/渲染負載過重。修正:
+  - **IPA 僅部署 11-NW-15B 單一圖幅**(其餘 15A/15C/15D 移除)。本機測試仍保留 L18 4 圖幅。
+  - **分塊解析度降為 L16 + 浮空地面移除停用**(`--no-floating-removal`),單圖幅 20 塊共 18.74 MB
+    (原 L18 4 圖幅 522 MB)。停用浮空移除同時修正地面/森林洞孔問題(原演算法過度刪除合法表面)。
+  - **可視距離限制 400m**:loadRadius 1000→400、unloadRadius 1350→550、cameraFarClip 2000→450。
+  - **加入線性霧(350-450m)** 隱藏遠處分塊彈出。
+  - glTFast 每幀載入預算 20%→15%,降低載入卡頓。
+
+- **Play mode 左鍵點擊後墜落穿模→從天空重生。** 根因:地面跟隨射線長度 50m 太短,
+  從 spawn 高處(Y+50)打不到 15B 地面(Y≈-45)→ foundGround=false → _groundEverFound=true 時
+  施重力 → 持續下墜至 fallRespawnY=-150 → 重生於 startPosition+30(仍打不到地面)→ 循環墜落。
+  修正:
+  - **groundRaycastLength 50→250m**(地面跟隨)、OnSpawned 初始搜尋 500m(確保從任何高度打到地面)。
+  - **maxYSnapPerFrame 8→80 m/s**(原 8 m/s × dt = 0.13m/幀,從 30m 落地需 4 秒 =「從天而降」)。
+  - **智慧重生**:追蹤 `_lastGroundY`,穿模時重生至 lastGroundY+eyeHeight+5(非固定 startPosition+30)。
+  - **重力限速** -20→-30 m/s(下墜更快找到新分塊的地面)。
+
+- **單圖幅 IPA 攝影機落在圖幅外(無分塊載入 = 藍屏)。** 根因:startPosition=(947,0,-124) 硬編於
+  多圖幅 manifest 座標(原點=15A centroid);單圖幅 15B-only manifest 原點=15B centroid,
+  攝影機落在圖幅外 947m → 無分塊載入。修正:
+  - **ChunkStreamBootstrapper 從 manifest 自動推導起始位置**:chunkCount≤25 時取所有 centroid
+    平均(= manifest 中心);>25 時用 15B 中心。透過 `TouchPlayerController.OnSpawned()` 設定。
+  - **TouchPlayerController.Awake 不再硬編 startPosition**,改由 Bootstrapper 載入 manifest 後設定。
+
+- **地面/森林洞孔(discontinuous surface)。** 根因:浮空地面移除(步驟 5b)以 KDTree 50m 半徑
+  搜尋,3-20m 浮空層判定過度刪除橋梁/平台/低屋頂等合法表面。修正:15B L16 重跑轉換器加
+  `--no-floating-removal`,保留所有面(可能有疊層但無洞)。
+
+### 變更(渲染效能)
+- **ChunkStreamConfig**:loadRadius 1000→400、unloadRadius 1350→550、新增 cameraFarClip=450、
+  gltfFrameBudget 0.2→0.15。
+- **SetupScene.Build()**:camera farClipPlane 2000→450、加入霧設定(RenderSettings.fog)、
+  強制更新 maxYSnapPerFrame=80。
+- **ChunkStreamBootstrapper.Start()**:manifest 載入後設定 cameraFarClip + 霧 + 呼叫 OnSpawned()。
+
 ## [v2.2.2] - 2026-11-20
 
 ### 修正(Play mode 體驗問題)

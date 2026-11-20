@@ -61,9 +61,9 @@ namespace HKGrid.Streaming
         [Tooltip("地面搜尋射線起點:眼睛上方此高度(避免打到鄰近建物屋頂)")]
         public float groundRaycastHeight = 2f;
         [Tooltip("射線最大長度(m),從起點向下搜尋地面")]
-        public float groundRaycastLength = 15f;
-        [Tooltip("每幀 Y 最大移動量(m),避免瞬間吸附到屋頂/樹冠")]
-        public float maxYSnapPerFrame = 8f;
+        public float groundRaycastLength = 250f;
+        [Tooltip("每幀 Y 最大移動速度(m/s),避免瞬間吸附到屋頂/樹冠")]
+        public float maxYSnapPerFrame = 80f;
         [Tooltip("失去地面時的重力加速度(m/s²)")]
         public float gravity = -9.81f;
         [Tooltip("掉落至此 Y 以下視為穿模,重生至起始位置")]
@@ -108,20 +108,24 @@ namespace HKGrid.Streaming
 
         // 地面跟隨:首次找到地面前懸停(等分塊載入),之後失去地面才施重力
         private bool _groundEverFound = false;
+        // v2.2.3: 由 ChunkStreamBootstrapper 在 manifest 載入後呼叫 OnSpawned() 啟動
+        private bool _spawned = false;
+        // v2.2.3: 最後已知地面 Y(穿模重生用,取代固定 startPosition 重生)
+        private float _lastGroundY = 0f;
 
         private void Awake()
         {
             _cam = GetComponent<Camera>();
             _isMobile = Application.isMobilePlatform || Input.touchSupported;
             _cam.fieldOfView = defaultFov;
+            _cam.farClipPlane = 450f;  // v2.2.3: 限制可視距離,不渲染視線外分塊
 
             // ── 覆寫過時的場景序列化值 ──
-            // 場景可能以 v2.2.0 預設值烘焙(groundRaycastHeight=100 / startPosition.z=+124 等),
-            // 導致地面跟隨射線從 100m 高處打下,打到建物屋頂或自身膠囊,而非腳下地面。
-            // 這是「看上方=飄起、看下方=墜落」問題的根因之一。
+            // v2.2.3: 不再硬編 startPosition(單圖幅/多圖幅 manifest 原點不同)。
+            //   改由 ChunkStreamBootstrapper 載入 manifest 後透過 OnSpawned() 設定。
+            //   舊值 groundRaycastLength=15/50 太短,從 spawn 高處打不到地面 → 懸空墜落。
             groundRaycastHeight = 2f;
-            groundRaycastLength = 50f;
-            startPosition = new Vector3(947f, 0f, -124f);
+            groundRaycastLength = 250f;
 
             // 確保 CharacterController 存在(舊場景可能無此元件;
             // RequireComponent 在載入已存場景時不一定自動補上)
@@ -140,14 +144,15 @@ namespace HKGrid.Streaming
             _cc.slopeLimit = 75f;            // 攝影測量地形坡度大,放寬
 
             // 停用 Bootstrapper 的起始位置覆寫(舊場景 overrideStartPos=true 會把攝影機
-            // 設到 (0,80,0),與本控制器的 startPosition 衝突)
+            // 設到 (0,80,0);v2.2.3 由 Bootstrapper.Start 載入 manifest 後透過 OnSpawned 處理)
             var boot = GetComponent<ChunkStreamBootstrapper>();
             if (boot != null) boot.overrideStartPos = false;
 
-            // 起始位置(合併世界座標)與視角(俯視城市,非水平看天空)
+            // 起始視角(俯視城市,非水平看天空)
             _yaw = startYaw;
             _pitch = startPitch;
-            transform.position = startPosition + Vector3.up * 30f; // 起始上空 30m,讓重力落下至地面
+            // v2.2.3: 不在 Awake 設定 transform.position;由 Bootstrapper.OnSpawned() 處理
+            _spawned = false;
 
             // 若舊版 FlyCameraController 仍在攝影機上,停用之
             var fly = GetComponent<FlyCameraController>();
@@ -159,6 +164,53 @@ namespace HKGrid.Streaming
             }
         }
 
+        /// <summary>
+        /// v2.2.3: 由 ChunkStreamBootstrapper 在 manifest 載入後呼叫。
+        /// 將攝影機定位至 worldPos 上方,做長射線找地面,然後啟動地面跟隨。
+        /// 解決:單圖幅(15B-only)與多圖幅(merged)manifest 原點不同,
+        /// 硬編 startPosition 在單圖幅時落在圖幅外 → 無分塊載入 → 無地面 → 墜落。
+        /// </summary>
+        public void OnSpawned(Vector3 worldPos)
+        {
+            // 從目標位置上方 50m 開始,做長射線找地面
+            Vector3 spawnPos = worldPos + Vector3.up * 50f;
+            transform.position = spawnPos;
+
+            // 長射線找地面(500m 搜尋範圍,涵蓋任何 spawn 高度差)
+            Vector3 rayOrigin = new Vector3(worldPos.x, spawnPos.y, worldPos.z);
+            int hitCount = Physics.RaycastNonAlloc(rayOrigin, Vector3.down, _rayHits, 500f, groundMask);
+            RaycastHit bestHit = default;
+            bool foundGround = false;
+            float closestDist = float.MaxValue;
+            for (int i = 0; i < hitCount; i++)
+            {
+                if (_rayHits[i].collider == _cc) continue;
+                if (_rayHits[i].distance < closestDist)
+                {
+                    closestDist = _rayHits[i].distance;
+                    bestHit = _rayHits[i];
+                    foundGround = true;
+                }
+            }
+
+            if (foundGround)
+            {
+                transform.position = new Vector3(worldPos.x, bestHit.point.y + eyeHeight, worldPos.z);
+                _lastGroundY = bestHit.point.y;
+                _groundEverFound = true;
+                Debug.Log($"[TouchPlayerController] OnSpawned: 地面 Y={bestHit.point.y:F1}, 攝影機 Y={transform.position.y:F1}");
+            }
+            else
+            {
+                // 分塊尚未載入(非同步 glTFast);先懸停,等 ApplyMovement 地面跟隨找到地面
+                _groundEverFound = false;
+                Debug.Log("[TouchPlayerController] OnSpawned: 地面未找到(分塊載入中),懸停等待");
+            }
+
+            _verticalVel = 0f;
+            _spawned = true;
+        }
+
         private void Update()
         {
             if (_isMobile)
@@ -167,7 +219,8 @@ namespace HKGrid.Streaming
                 HandleDesktopInput();
 
             ApplyLook();
-            ApplyMovement();  // 含 CharacterController 碰撞 + 地面跟隨
+            if (_spawned)
+                ApplyMovement();  // 含 CharacterController 碰撞 + 地面跟隨(v2.2.3: 等 OnSpawned 後才啟動)
             ApplyZoomDesktop();
         }
 
@@ -357,17 +410,18 @@ namespace HKGrid.Streaming
             {
                 float targetY = bestHit.point.y + eyeHeight;
                 deltaY = targetY - transform.position.y;
-                // 限幅:每幀最多移動 maxYSnapPerFrame,避免瞬間跳到屋頂
+                // 限幅:每幀最多移動 maxYSnapPerFrame 速度(m/s × dt)
                 deltaY = Mathf.Clamp(deltaY, -maxYSnapPerFrame * Time.deltaTime,
                                              maxYSnapPerFrame * Time.deltaTime);
                 _verticalVel = 0f;  // 著地,重設垂直速度
                 _groundEverFound = true;
+                _lastGroundY = bestHit.point.y;  // v2.2.3: 追蹤最後已知地面(穿模重生用)
             }
             else if (_groundEverFound)
             {
                 // 曾找到地面但現在失去(走到邊緣/分塊卸載):施加重力緩慢下墜
                 _verticalVel += gravity * Time.deltaTime;
-                if (_verticalVel < -20f) _verticalVel = -20f; // 限速
+                if (_verticalVel < -30f) _verticalVel = -30f; // 限速
                 deltaY = _verticalVel * Time.deltaTime;
             }
             else
@@ -379,10 +433,20 @@ namespace HKGrid.Streaming
             Vector3 move = horizontal + Vector3.up * deltaY;
             _cc.Move(move);  // CharacterController 處理水平碰撞(牆/建物/樹)
 
-            // 穿模重生(掉入空洞或未載入區域)
-            if (transform.position.y < fallRespawnY)
+            // v2.2.3: 智慧重生——掉至最後已知地面 50m 以下時,重生至該地面(非固定 startPosition)
+            // 修正「左鍵點擊後墜落穿模→從天空重生」問題:改用 lastGroundY 而非 startPosition+30
+            if (_groundEverFound && transform.position.y < _lastGroundY - 50f)
             {
-                transform.position = startPosition + Vector3.up * 30f;
+                transform.position = new Vector3(transform.position.x,
+                    _lastGroundY + eyeHeight + 5f, transform.position.z);
+                _verticalVel = 0f;
+                Debug.Log($"[TouchPlayerController] 穿模重生: Y={transform.position.y:F1} (lastGroundY={_lastGroundY:F1})");
+            }
+            // 緊急重生:掉至絕對最低點(分塊完全未載入 / lastGroundY 無效時)
+            else if (transform.position.y < fallRespawnY)
+            {
+                float respawnY = _groundEverFound ? _lastGroundY + eyeHeight + 30f : 100f;
+                transform.position = new Vector3(transform.position.x, respawnY, transform.position.z);
                 _verticalVel = 0f;
             }
         }
