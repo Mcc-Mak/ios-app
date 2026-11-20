@@ -339,7 +339,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   startPosition: {x: 947, y: 0, z: 124}
   startYaw: 0
-  startPitch: 25
+  startPitch: 55
   moveSpeed: 5
   sprintMultiplier: 2
   lookSensitivityTouch: 0.2
@@ -364,6 +364,7 @@ MonoBehaviour:
   joystickDeadzone: 0.1
   joystickMarginX: 160
   joystickMarginY: 160
+  joystickLookSpeed: 90
 --- !u!143 &2101336115
 CharacterController:
   m_ObjectHideFlags: 0
