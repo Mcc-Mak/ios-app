@@ -25,7 +25,14 @@ Stage A: OSGB → Chunked GLB Converter
     --output /path/to/chunks_out \\
     --osgconv /path/to/osgconv \\
     [--max-chunk-mb 8] [--max-total-mb 200] [--max-texture-px 512] \\
-    [--lod root] [--decimate-threshold 3000] [--verbose]
+    [--lod l16] [--decimate-threshold 3000] [--verbose]
+
+解析度/大小調整(輸出大小主要由 LOD + 紋理像素控制):
+  - 預設(l16 + 512px)≈ 20 MB/圖幅(11-NW-15B 實測 19.72 MB)。
+  - 高解析(80 MB 目標):--lod l17 --max-texture-px 1024
+    (l17 ≈ l16 的 4× 三角面;1024px ≈ 512px 的 4× 紋理 → 合計約 80 MB)
+  - 若資料無 L17,改用 --lod l16 --max-texture-px 1536(約 80 MB,純紋理提升)。
+  - 單單塊/總和預算只是「上限」;實際輸出由 LOD + 紋理決定,不會無故放大。
 
 環境變數(可替代 CLI):
   OSGB_INPUT, OSGB_OUTPUT, OSGCONV_PATH, MAX_CHUNK_MB, MAX_TOTAL_MB, MAX_TEXTURE_PX
@@ -69,8 +76,8 @@ class SubTile:
     dir_name: str               # e.g. "11-NW-19B-1"
     tile_x: int                 # Tile_+X 的 X
     tile_y: int                 # Tile_+Y 的 Y
-    root_osgb: Path             # 根 .osgb 路徑
-    lod_files: list[Path] = field(default_factory=list)  # 可選的較細 LOD 檔
+    lod_osgbs: list[Path] = field(default_factory=list)   # 所選 LOD 的 .osgb 檔(root/l15/l16 為單檔;l17+ 為多檔,自動合併)
+    all_lod_files: list[Path] = field(default_factory=list)  # 所有含 _L 的 .osgb(參考用)
 
 
 @dataclass
@@ -118,11 +125,12 @@ def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tu
 
     log.info("OSGB 根目錄: %s", root)
 
-    # LOD 選擇:root = 檔名不含 _L;l15/l16 = 檔名含 _L15_/_L16_
+    # LOD 選擇:root = 檔名不含 _L;lNN = 檔名含 _L<N>_(
+    # l17+ 一個子圖幅會分裂為多個 .osgb,全部收集後合併為單一分塊)。
     if lod == "root":
         lod_token = None  # 不含 _L
     else:
-        lod_token = f"_L{lod[1:]}_"  # e.g. "_L16_"
+        lod_token = f"_L{lod[1:]}_"  # e.g. "_L16_"、"_L17_"
 
     subtiles: list[SubTile] = []
     for d in sorted(root.iterdir()):
@@ -133,28 +141,28 @@ def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tu
             continue
         idx = int(m.group(2))
         if lod_token is None:
-            # root: 檔名不含 _L
-            roots = sorted([f for f in d.iterdir()
-                            if f.suffix.lower() == ".osgb" and "_L" not in f.name])
+            # root: 檔名不含 _L(單檔)
+            chosen = sorted([f for f in d.iterdir()
+                             if f.suffix.lower() == ".osgb" and "_L" not in f.name])
         else:
-            # l15/l16: 檔名含 _L<N>_
-            roots = sorted([f for f in d.iterdir()
-                            if f.suffix.lower() == ".osgb" and lod_token in f.name])
-        if not roots:
+            # lNN: 檔名含 _L<N>_(l17+ 可能多檔,全部收集)
+            chosen = sorted([f for f in d.iterdir()
+                             if f.suffix.lower() == ".osgb" and lod_token in f.name])
+        if not chosen:
             log.warning("子圖幅 %s 找不到 LOD=%s 的 .osgb(跳過)", d.name, lod)
             continue
-        # 座標從檔名解析(root 與 L16 命名一致:Tile_+X_+Y[_L16_NN].osgb)
-        rm = re.match(r"Tile_\+(-?\d+)_\+(-?\d+)", roots[0].name)
+        # 座標從檔名解析(root 與 LNN 命名一致:Tile_+X_+Y[_LNN_NN].osgb)
+        rm = re.match(r"Tile_\+(-?\d+)_\+(-?\d+)", chosen[0].name)
         if not rm:
-            log.warning("無法解析子圖幅座標: %s", roots[0].name)
+            log.warning("無法解析子圖幅座標: %s", chosen[0].name)
             continue
         tile_x, tile_y = int(rm.group(1)), int(rm.group(2))
         # 收集所有 LOD 子檔(供參考)
-        lod_files = sorted([f for f in d.iterdir()
-                            if f.suffix.lower() == ".osgb" and "_L" in f.name])
+        all_lod_files = sorted([f for f in d.iterdir()
+                                if f.suffix.lower() == ".osgb" and "_L" in f.name])
         subtiles.append(SubTile(
             index=idx, dir_name=d.name, tile_x=tile_x, tile_y=tile_y,
-            root_osgb=roots[0], lod_files=lod_files,
+            lod_osgbs=chosen, all_lod_files=all_lod_files,
         ))
 
     if not subtiles:
@@ -241,6 +249,13 @@ def _rewrite_mtl_to_basenames(obj_path: Path) -> None:
         log.debug("  .mtl 改寫失敗(非致命): %s", e)
 
 
+def _lod_type(v: str) -> str:
+    """argparse 型別校驗:接受 'root' 或 'lNN'(如 l15/l16/l17/l18)。"""
+    if v == "root" or (v.startswith("l") and v[1:].isdigit()):
+        return v
+    raise argparse.ArgumentTypeError(f"--lod 須為 root 或 lNN(如 l15/l16/l17),收到: {v!r}")
+
+
 def _osg_version(osgconv: Path) -> str:
     """從 plugin 目錄名推斷版本(如 osgPlugins-3.6.5)。"""
     parent = osgconv.parent
@@ -257,7 +272,7 @@ def osg_path_for_log(p: Path) -> str:
 
 # ────────────────────────── Stage 3: 載入 OBJ + 簡化 + 匯出 GLB ──────────────────────────
 def build_chunk_glb(
-    obj_path: Path,
+    obj_paths: list[Path],
     out_glb: Path,
     *,
     target_bytes: int,
@@ -266,74 +281,91 @@ def build_chunk_glb(
     recenter: np.ndarray,
 ) -> tuple[int, int, np.ndarray, np.ndarray]:
     """
-    載入 OBJ(含紋理),以 pymeshlab 的 UV 保留簡化至目標大小,
-    降解析度紋理,重新置中至 recenter(本地座標),匯出 .glb。
+    載入一個子圖幅的所有 OBJ(含紋理),以 pymeshlab 的 UV 保留簡化至目標大小,
+    降解析度紋理,重新置中至 recenter(本地座標),匯出單一 .glb(可含多 mesh)。
     回傳 (位元組數, 三角面總數, bbox_min, bbox_max)。
 
-    流程:pymeshlab 載入 → meshing_decimation_quadric_edge_collapse_with_texture
-    (保留 UV/紋理) → 存 OBJ → trimesh 載入 → 置中 + 紋理降解析 → 匯出 GLB。
+    L17+ 一個子圖幅可能有多個 .osgb/.obj(四元樹分裂);此函式對每個 OBJ 各自
+    簡化(預算均分),再以 trimesh 收集所有網格合併為單一 GLB。root/l15/l16
+    僅單一 OBJ,行為與舊版一致。
+
+    流程(每個 OBJ):pymeshlab 載入 → meshing_decimation_quadric_edge_collapse_with_texture
+    (保留 UV/紋理) → 存 OBJ;最後 trimesh 載入全部 → 置中 + 紋理降解析 → 匯出 GLB。
     """
     import warnings
     warnings.filterwarnings("ignore")
     import pymeshlab
     import trimesh
 
-    # 1. pymeshlab 載入 + 計算原始三角面數與 bbox
-    ms = pymeshlab.MeshSet()
-    ms.load_new_mesh(str(obj_path))
-    m0 = ms.current_mesh()
-    orig_faces = m0.face_number()
-    orig_verts = m0.vertex_number()
+    tmp_dir = out_glb.parent / f"_tmp_{out_glb.stem}"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    # 取得原始 bbox(從頂點)
-    # pymeshlab 的 bbox:用 vertex matrix
-    vmatrix = m0.vertex_matrix()
-    bbox_min = np.array(vmatrix.min(axis=0)).flatten()
-    bbox_max = np.array(vmatrix.max(axis=0)).flatten()
-
-    # 2. 決定目標三角面數
+    # 目標三角面:跨所有輸入 OBJ 共用預算(均分)。root/l15/l16 僅 1 個 OBJ。
     # 經驗:含紋理 GLB 約 11k faces/MB(含 256px 紋理)。
     # 保守取 target_bytes 的 70% 給幾何,30% 給紋理。
     geom_budget = target_bytes * 0.7
     bytes_per_face = 60  # 位置+索引+法線+UV 的壓縮後估計
-    target_faces = int(geom_budget / bytes_per_face)
-    target_faces = min(target_faces, orig_faces)
+    target_faces_total = int(geom_budget / bytes_per_face)
+    per_file_target = max(2000, target_faces_total // max(1, len(obj_paths)))
 
-    log.debug("  pymeshlab: %d faces → target %d", orig_faces, target_faces)
+    orig_faces_total = 0
+    bbox_min = np.array([np.inf, np.inf, np.inf])
+    bbox_max = np.array([-np.inf, -np.inf, -np.inf])
+    tmp_objs: list[Path] = []
 
-    # 3. 簡化(若需要)
-    if orig_faces > target_faces and orig_faces > decimate_threshold:
-        try:
-            ms.meshing_decimation_quadric_edge_collapse_with_texture(
-                targetfacenum=target_faces
-            )
-            m1 = ms.current_mesh()
-            log.debug("  decimated: %d → %d faces, %d textures",
-                      orig_faces, m1.face_number(), m1.texture_number())
-        except Exception as e:
-            log.warning("  pymeshlab 簡化失敗(%s),保留原始", e)
+    # 1-4. 逐 OBJ:pymeshlab 載入 + 簡化 + 存暫存 OBJ;累計 bbox
+    for oi, obj_path in enumerate(obj_paths):
+        ms = pymeshlab.MeshSet()
+        ms.load_new_mesh(str(obj_path))
+        m0 = ms.current_mesh()
+        orig_faces = m0.face_number()
+        orig_faces_total += orig_faces
 
-    # 4. 存為 OBJ(含紋理)到暫存目錄,再以 trimesh 載入
-    tmp_dir = out_glb.parent / f"_tmp_{out_glb.stem}"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    tmp_obj = tmp_dir / "chunk.obj"
-    ms.save_current_mesh(str(tmp_obj))
+        # 取得原始 bbox(從頂點);L17+ 多檔取聯集
+        vmatrix = m0.vertex_matrix()
+        bmin = np.array(vmatrix.min(axis=0)).flatten()
+        bmax = np.array(vmatrix.max(axis=0)).flatten()
+        bbox_min = np.minimum(bbox_min, bmin)
+        bbox_max = np.maximum(bbox_max, bmax)
 
-    # 5. trimesh 載入 + 置中 + 紋理降解析
-    scene = trimesh.load(str(tmp_obj), force="scene")
+        log.debug("  [%d/%d] pymeshlab: %d faces → target %d",
+                  oi + 1, len(obj_paths), orig_faces, per_file_target)
+
+        # 簡化(若需要)
+        if orig_faces > per_file_target and orig_faces > decimate_threshold:
+            try:
+                ms.meshing_decimation_quadric_edge_collapse_with_texture(
+                    targetfacenum=per_file_target
+                )
+                m1 = ms.current_mesh()
+                log.debug("  [%d] decimated: %d → %d faces, %d textures",
+                          oi, orig_faces, m1.face_number(), m1.texture_number())
+            except Exception as e:
+                log.warning("  [%d] pymeshlab 簡化失敗(%s),保留原始", oi, e)
+
+        # 存為 OBJ(含紋理)到暫存目錄
+        tmp_obj = tmp_dir / f"chunk_{oi}.obj"
+        ms.save_current_mesh(str(tmp_obj))
+        tmp_objs.append(tmp_obj)
+
+    log.debug("  子圖幅共 %d OBJ,原始三角面總計 %d", len(obj_paths), orig_faces_total)
+
+    # 5. trimesh 載入「所有」暫存 OBJ + 置中 + 紋理降解析(L17+ 多檔合併為單一 GLB)
     geometries: list[trimesh.Trimesh] = []
-    if isinstance(scene, trimesh.Scene):
-        for _name, g in scene.geometry.items():
-            if hasattr(g, "faces") and len(g.faces) > 0:
-                geometries.append(g)
-    elif hasattr(scene, "faces"):
-        geometries.append(scene)
+    for tmp_obj in tmp_objs:
+        scene = trimesh.load(str(tmp_obj), force="scene")
+        if isinstance(scene, trimesh.Scene):
+            for _name, g in scene.geometry.items():
+                if hasattr(g, "faces") and len(g.faces) > 0:
+                    geometries.append(g)
+        elif hasattr(scene, "faces") and len(scene.faces) > 0:
+            geometries.append(scene)
 
     if not geometries:
         # 清理暫存
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise RuntimeError(f"簡化後 OBJ 無有效網格: {obj_path}")
+        raise RuntimeError(f"簡化後 OBJ 無有效網格: {obj_paths}")
 
     # 5a. Mesh cleanup:移除孤立小元件(spike/雜訊)。
     # 攝影測量資料常有飛散三角形(spike),以「連通元件面數 < 門檻」過濾。
@@ -455,33 +487,42 @@ def build_chunk_glb(
     out_scene.export(str(out_glb))
     actual_bytes = out_glb.stat().st_size
 
-    # 7. 若仍超出目標,第二輪更激進簡化
+    # 7. 若仍超出目標,第二輪更激進簡化(對每個暫存 OBJ 各自再簡化)
     if actual_bytes > target_bytes * 1.15 and total_tris > 5000:
         log.debug("  首輪 %d bytes > 目標,第二輪簡化", actual_bytes)
         over_ratio = (target_bytes / actual_bytes) ** 1.3
-        new_target = max(2000, int(total_tris * over_ratio))
-        ms2 = pymeshlab.MeshSet()
-        ms2.load_new_mesh(str(tmp_obj))
-        try:
-            ms2.meshing_decimation_quadric_edge_collapse_with_texture(
-                targetfacenum=new_target
-            )
-            ms2.save_current_mesh(str(tmp_obj))
-            scene2 = trimesh.load(str(tmp_obj), force="scene")
-            geoms2: list[trimesh.Trimesh] = []
-            if isinstance(scene2, trimesh.Scene):
-                for _n, g in scene2.geometry.items():
-                    if hasattr(g, "faces") and len(g.faces) > 0:
-                        g.vertices = g.vertices - recenter
-                        _downscale_textures(g, max_texture_px)
-                        geoms2.append(g)
+        new_target_total = max(2000, int(total_tris * over_ratio))
+        new_per_file = max(1000, new_target_total // max(1, len(tmp_objs)))
+        geoms2: list[trimesh.Trimesh] = []
+        for tmp_obj in tmp_objs:
+            try:
+                ms2 = pymeshlab.MeshSet()
+                ms2.load_new_mesh(str(tmp_obj))
+                if ms2.current_mesh().face_number() > new_per_file:
+                    ms2.meshing_decimation_quadric_edge_collapse_with_texture(
+                        targetfacenum=new_per_file
+                    )
+                ms2.save_current_mesh(str(tmp_obj))
+                scene2 = trimesh.load(str(tmp_obj), force="scene")
+                if isinstance(scene2, trimesh.Scene):
+                    for _n, g in scene2.geometry.items():
+                        if hasattr(g, "faces") and len(g.faces) > 0:
+                            g.vertices = g.vertices - recenter
+                            _downscale_textures(g, max_texture_px)
+                            geoms2.append(g)
+                elif hasattr(scene2, "faces") and len(scene2.faces) > 0:
+                    g = scene2
+                    g.vertices = g.vertices - recenter
+                    _downscale_textures(g, max_texture_px)
+                    geoms2.append(g)
+            except Exception as e:
+                log.warning("  第二輪簡化失敗(%s): %s", tmp_obj.name, e)
+        if geoms2:
             out_scene = trimesh.Scene(geoms2)
             out_scene.export(str(out_glb))
             actual_bytes = out_glb.stat().st_size
             total_tris = sum(len(g.faces) for g in geoms2)
             log.debug("  第二輪: %d bytes, %d tris", actual_bytes, total_tris)
-        except Exception as e:
-            log.warning("  第二輪簡化失敗: %s", e)
 
     # 清理暫存目錄
     import shutil
@@ -576,10 +617,11 @@ def main() -> int:
                    help="紋理最長邊像素")
     p.add_argument("--decimate-threshold", type=int, default=3000,
                    help="低於此三角面數的網格不簡化(保留紋理/UV)")
-    p.add_argument("--lod", choices=["root", "l15", "l16"], default="root",
+    p.add_argument("--lod", type=_lod_type, default="l16",
                    help="LOD 層級:root=最粗(建物無牆面,堆疊平板);l15=第15層;"
-                        "l16=第16層(建物有真正牆面,視覺顯著改善,推薦)。"
-                        "每子圖幅 root/l15/l16 各為單一 .osgb 檔")
+                        "l16=第16層(建物有真正牆面,預設,推薦);l17/l18=更細"
+                        "(每子圖幅分裂為多檔,自動合併,三角面約 l16 的 4×/16×)。"
+                        "接受 root 或 lNN。預設 l16。")
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args()
 
@@ -627,20 +669,23 @@ def main() -> int:
     all_min = np.array([np.inf, np.inf, np.inf])
     all_max = np.array([-np.inf, -np.inf, -np.inf])
     # 為了避免重複轉換,先快速 osgconv 所有根 OBJ 到 work_dir,記錄 bbox
-    obj_cache: dict[int, Path] = {}
+    obj_cache: dict[int, list[Path]] = {}
     for s in subtiles:
         obj_out = work_dir / s.dir_name
         try:
-            obj_path = convert_osgb_to_obj(s.root_osgb, obj_out, osgconv)
-            obj_cache[s.index] = obj_path
-            # 快速讀取頂點範圍(不載入紋理)
+            objs: list[Path] = []
+            for osgb in s.lod_osgbs:
+                objs.append(convert_osgb_to_obj(osgb, obj_out, osgconv))
+            obj_cache[s.index] = objs
+            # 快速讀取頂點範圍(不載入紋理);L17+ 多檔全部納入 bbox
             import trimesh
-            sc = trimesh.load(str(obj_path), force="scene")
-            if isinstance(sc, trimesh.Scene):
-                for _n, g in sc.geometry.items():
-                    if hasattr(g, "vertices") and len(g.vertices) > 0:
-                        all_min = np.minimum(all_min, g.vertices.min(axis=0))
-                        all_max = np.maximum(all_max, g.vertices.max(axis=0))
+            for obj_path in objs:
+                sc = trimesh.load(str(obj_path), force="scene")
+                if isinstance(sc, trimesh.Scene):
+                    for _n, g in sc.geometry.items():
+                        if hasattr(g, "vertices") and len(g.vertices) > 0:
+                            all_min = np.minimum(all_min, g.vertices.min(axis=0))
+                            all_max = np.maximum(all_max, g.vertices.max(axis=0))
         except Exception as e:
             log.warning("子圖幅 %d 預掃描失敗: %s", s.index, e)
 
@@ -670,14 +715,15 @@ def main() -> int:
         out_glb = output_dir / f"chunk_{chunk_id}.glb"
         log.info("[%d/%d] %s → %s", i, len(subtiles), s.dir_name, out_glb.name)
 
-        obj_path = obj_cache.get(s.index)
-        if obj_path is None or not obj_path.exists():
+        obj_paths = obj_cache.get(s.index, [])
+        obj_paths = [p for p in obj_paths if p.exists()]
+        if not obj_paths:
             log.warning("  跳過(無 OBJ)")
             continue
 
         try:
             cb, ct, bmin, bmax = build_chunk_glb(
-                obj_path, out_glb,
+                obj_paths, out_glb,
                 target_bytes=max_chunk_bytes,
                 max_texture_px=args.max_texture_px,
                 decimate_threshold=args.decimate_threshold,

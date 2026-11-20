@@ -9,6 +9,17 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [Unreleased]
+
+### 新增(Stage A — L17+ LOD 支援,邁向高解析模型)
+- **`convert_osgb_to_chunks.py` 支援 L17/L18 等更細 LOD。** 先前 `--lod` 僅接受 `root`/`l15`/`l16`(每子圖幅單一 `.osgb`);L17+ 一個子圖幅會分裂為多個 `.osgb`(四元樹),舊版只取其一。現在 `--lod` 接受任意 `lNN`,自動收集子圖幅內所有對應 LOD 檔,各自 `osgconv` → `pymeshlab` 簡化(預算均分)→ `trimesh` 合併為單一 `.glb` 分塊(多 mesh)。三角面約為 l16 的 4×(l17)/16×(l18)。
+  - `SubTile` 欄位重構:`root_osgb: Path` + `lod_files` → `lod_osgbs: list[Path]`(所選 LOD 檔)+ `all_lod_files`(參考用)。
+  - `build_chunk_glb` 簽名改為 `obj_paths: list[Path]`:逐 OBJ 簡化 + 暫存,再以 trimesh 收集所有網格合併;第二輪超量簡化亦改為對每個暫存 OBJ 各自再簡化。bbox 改取所有輸入 OBJ 的聯集。
+  - 預掃描(`obj_cache`)改為 `dict[int, list[Path]]`,L17+ 多檔全部轉 OBJ 並納入全域 bbox(置中點計算正確)。
+  - `--lod` 預設由 `root` 改為 `l16`(與既有文件/推薦一致),新增 `_lod_type` 型別校驗接受 `root` 或 `lNN`。
+- **輸出大小調整指引(模組 docstring)。** 輸出大小主要由 LOD + 紋理像素控制:預設 `l16 + 512px` ≈ 20 MB/圖幅;80 MB 目標食譜 `--lod l17 --max-texture-px 1024`(4× 幾何 + 4× 紋理);無 L17 時 fallback `--lod l16 --max-texture-px 1536`。單塊/總和預算僅為上限,不會無故放大輸出。
+- **驗證閘道維持不變。** 80 MB 目標(`l17 + 1024px`,預估每塊 ~4 MB)遠低於 `validate_chunks.py` 現有上限(≤ 10 MB/塊、≤ 200 MB 總和),無需調整閘道。
+
 ## [v2.1.0] - 2026-11-20
 
 ### 重大變更
