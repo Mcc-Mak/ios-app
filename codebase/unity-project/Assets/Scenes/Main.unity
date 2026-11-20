@@ -16,12 +16,12 @@ OcclusionCullingSettings:
 RenderSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 9
-  m_Fog: 0
-  m_FogColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
-  m_FogMode: 3
+  m_Fog: 1
+  m_FogColor: {r: 0.5, g: 0.7, b: 0.9, a: 1}
+  m_FogMode: 1
   m_FogDensity: 0.01
-  m_LinearFogStart: 0
-  m_LinearFogEnd: 300
+  m_LinearFogStart: 350
+  m_LinearFogEnd: 450
   m_AmbientSkyColor: {r: 0.212, g: 0.227, b: 0.259, a: 1}
   m_AmbientEquatorColor: {r: 0.114, g: 0.125, b: 0.133, a: 1}
   m_AmbientGroundColor: {r: 0.047, g: 0.043, b: 0.035, a: 1}
@@ -232,6 +232,7 @@ GameObject:
   - component: {fileID: 2101336112}
   - component: {fileID: 2101336111}
   - component: {fileID: 2101336114}
+  - component: {fileID: 2101336115}
   m_Layer: 0
   m_HasEditorInfo: 1
   m_Name: Main Camera
@@ -254,7 +255,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   config: {fileID: 11400000, guid: e6ee460f4dc5cd341a6e969209bb636c, type: 2}
   camera: {fileID: 2101336112}
-  overrideStartPos: 1
+  overrideStartPos: 0
   startLocalPos: {x: 0, y: 0, z: 80}
 --- !u!20 &2101336112
 Camera:
@@ -351,9 +352,11 @@ MonoBehaviour:
   zoomSpeedTouch: 0.08
   zoomSpeedMouse: 15
   eyeHeight: 1.7
-  groundRaycastHeight: 100
-  groundRaycastLength: 500
-  groundFollowLerp: 10
+  groundRaycastHeight: 2
+  groundRaycastLength: 250
+  maxYSnapPerFrame: 80
+  gravity: -9.81
+  fallRespawnY: -150
   groundMask:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -361,6 +364,32 @@ MonoBehaviour:
   joystickDeadzone: 0.1
   joystickMarginX: 160
   joystickMarginY: 160
+--- !u!143 &2101336115
+CharacterController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2101336109}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Height: 2
+  m_Radius: 0.5
+  m_SlopeLimit: 45
+  m_StepOffset: 0.3
+  m_SkinWidth: 0.08
+  m_MinMoveDistance: 0.001
+  m_Center: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

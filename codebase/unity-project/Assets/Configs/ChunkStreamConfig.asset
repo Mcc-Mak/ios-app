@@ -14,12 +14,14 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   chunksRelativePath: Chunks
   manifestFileName: manifest.json
-  loadRadius: 350
-  unloadRadius: 500
+  loadRadius: 400
+  unloadRadius: 550
+  cameraFarClip: 450
   maxLoadsPerFrame: 1
   maxUnloadsPerFrame: 2
-  gltfFrameBudget: 0.2
+  gltfFrameBudget: 0.15
   cacheGltfImports: 0
   applyZupToYupRotation: 1
+  addChunkColliders: 1
   drawChunkGizmos: 1
   logStreamingEvents: 1
