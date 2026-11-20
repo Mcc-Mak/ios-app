@@ -35,7 +35,7 @@ namespace HKGrid.Streaming
         [Tooltip("起始水平視角(Yaw,度)。0=+Z/南,90=+X/東")]
         public float startYaw = 0f;
         [Tooltip("起始俯角(Pitch,度)。正值=向下看,看到地面/城市")]
-        public float startPitch = 25f;
+        public float startPitch = 55f;
         [Header("移動")]
         [Tooltip("步行速度(m/s)")]
         public float moveSpeed = 5f;
@@ -80,6 +80,8 @@ namespace HKGrid.Streaming
         public float joystickMarginX = 160f;
         [Tooltip("搖桿固定位置:距下邊緣像素")]
         public float joystickMarginY = 160f;
+        [Tooltip("v2.2.4: 搖桿視角靈敏度(度/秒)。搖桿控制 pan/tilt 而非移動")]
+        public float joystickLookSpeed = 90f;
 
         // ── 內部狀態 ──
         private Camera _cam;
@@ -172,8 +174,8 @@ namespace HKGrid.Streaming
         /// </summary>
         public void OnSpawned(Vector3 worldPos)
         {
-            // 從目標位置上方 50m 開始,做長射線找地面
-            Vector3 spawnPos = worldPos + Vector3.up * 50f;
+            // 從目標位置上方 15m 開始(v2.2.4: 原 50m 太高,看天空=藍屏)
+            Vector3 spawnPos = worldPos + Vector3.up * 15f;
             transform.position = spawnPos;
 
             // 長射線找地面(500m 搜尋範圍,涵蓋任何 spawn 高度差)
@@ -218,6 +220,14 @@ namespace HKGrid.Streaming
             else
                 HandleDesktopInput();
 
+            // v2.2.4: 左搖桿 = pan/tilt(非移動)。搖桿向量 → yaw/pitch 旋轉速度
+            if (_isMobile && _joystickVector.sqrMagnitude > joystickDeadzone * joystickDeadzone)
+            {
+                _yaw += _joystickVector.x * joystickLookSpeed * Time.deltaTime;
+                _pitch -= _joystickVector.y * joystickLookSpeed * Time.deltaTime;
+                _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
+            }
+
             ApplyLook();
             if (_spawned)
                 ApplyMovement();  // 含 CharacterController 碰撞 + 地面跟隨(v2.2.3: 等 OnSpawned 後才啟動)
@@ -251,7 +261,7 @@ namespace HKGrid.Streaming
             if (Input.touchCount >= 2)
             {
                 HandlePinch();
-                // 捏合期間仍可移動(左手指持續搖桿)
+                // 捏合期間仍可 pan/tilt(左手指持續搖桿)
                 if (_moveFingerId != -1)
                 {
                     Touch moveTouch = GetTouchByFingerId(_moveFingerId);
@@ -359,7 +369,8 @@ namespace HKGrid.Streaming
             Vector2 input;
             if (_isMobile)
             {
-                input = _joystickVector;
+                // v2.2.4: 行動裝置無移動(搖桿改為 pan/tilt,不再控制移動)
+                input = Vector2.zero;
             }
             else
             {
@@ -426,8 +437,9 @@ namespace HKGrid.Streaming
             }
             else
             {
-                // 首次找到地面前(分塊尚未載入):懸停,不施重力(避免穿模墜落)
-                deltaY = 0f;
+                // v2.2.4: 首次找到地面前,緩慢下降尋找地面(非懸停)
+                // 原懸停(deltaY=0)導致攝影機停留在高空看天空=藍屏
+                deltaY = -5f * Time.deltaTime;
             }
 
             Vector3 move = horizontal + Vector3.up * deltaY;

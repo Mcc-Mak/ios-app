@@ -9,6 +9,28 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.4] - 2026-11-20
+
+### 修正(IPhone 藍屏 + 搖桿改 pan/tilt)
+
+- **IPA 部署後藍屏(無 3D 模型可見)。** 根因:攝影機 spawn 在 Y+50 高處,
+  俯角僅 25°(FOV 60° → 上半部全看天空),且首次找不到地面時懸停(deltaY=0)
+  永遠不下降 → 分塊載入前/載入中攝影機持續看天空 = 藍屏。修正:
+  - **startPitch 25→55°**(看地面為主,非天空)
+  - **OnSpawned spawn 高度 Y+50→Y+15**(更接近地面,分塊載入即見)
+  - **首次找不到地面時緩慢下降 5m/s**(非懸停),直到射線打到地面
+
+- **左搖桿改為 pan/tilt(非移動)。** 原搖桿控制移動(前後左右行走),
+  v2.2.4 改為控制視角(yaw/pitch 旋轉速度)。搖桿 X=yaw、Y=pitch,
+  靈敏度 90°/秒。行動裝置不再有移動輸入(桌面 WASD 仍可用於測試)。
+
+### 變更(控制)
+- **TouchPlayerController.Update()**:新增搖桿→yaw/pitch 套用(_joystickVector
+  → _yaw/_pitch 旋轉速度,非移動向量)
+- **TouchPlayerController.ApplyMovement()**:行動裝置 input=Vector2.zero(無移動)
+- 新增 `joystickLookSpeed=90` 欄位(搖桿視角靈敏度)
+- 右側拖曳 pan/tilt 保持不變(與左搖桿並存,兩者皆可環顧)
+
 ## [v2.2.3] - 2026-11-20
 
 ### 修正(iPhone 17e 卡死 + Play mode 穿模墜落 + 地面洞孔)

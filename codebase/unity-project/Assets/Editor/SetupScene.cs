@@ -112,12 +112,13 @@ namespace HKGrid.Editor
 
             // 6b. 強制更新 TouchPlayerController 欄位(覆寫舊場景殘留的 v2.2.0 預設值)
             //     v2.2.3: startPosition 不再硬編——由 Bootstrapper 載入 manifest 後透過 OnSpawned() 設定。
-            //     此處保留值僅為 fallback;groundRaycastLength 50→250(舊值太短,spawn 高處打不到地面)
+            //     v2.2.4: startPitch 25→55(原太淺看天空=藍屏)、搖桿改 pan/tilt
             player.groundRaycastHeight = 2f;
             player.groundRaycastLength = 250f;
             player.maxYSnapPerFrame = 80f;
-            player.startPitch = 25f;
+            player.startPitch = 55f;
             player.startYaw = 0f;
+            player.joystickLookSpeed = 90f;
             EditorUtility.SetDirty(player);
 
             // 6c. 強制更新 Config 值(確保舊資產也套用新參數)
