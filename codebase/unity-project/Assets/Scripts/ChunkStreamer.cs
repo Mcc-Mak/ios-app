@@ -168,6 +168,12 @@ namespace HKGrid.Streaming
                     return;
                 }
 
+                // 加入 MeshCollider 供地面跟隨射線(TouchPlayerController)使用
+                if (_config.addChunkColliders)
+                {
+                    AddCollidersRecursive(chunkGo);
+                }
+
                 _loaded[rec.id] = new LoadedChunk
                 {
                     id = rec.id,
@@ -207,6 +213,21 @@ namespace HKGrid.Streaming
             string full = Path.Combine(baseDir, fileName);
             // iOS 與 Editor 需要 file:// 前綴給 UnityWebRequest
             return "file://" + full.Replace('\\', '/');
+        }
+
+        /// <summary>為分塊的所有子網格加入 MeshCollider(供地面跟隨射線)。</summary>
+        private static void AddCollidersRecursive(GameObject root)
+        {
+            foreach (var mf in root.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.sharedMesh != null && mf.sharedMesh.vertexCount > 0)
+                {
+                    var mc = mf.GetComponent<MeshCollider>();
+                    if (mc == null)
+                        mc = mf.gameObject.AddComponent<MeshCollider>();
+                    mc.sharedMesh = mf.sharedMesh;
+                }
+            }
         }
 
         /// <summary>全部卸載(場景切換/離開時呼叫)。</summary>

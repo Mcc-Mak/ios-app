@@ -42,6 +42,11 @@ namespace HKGrid.Streaming
         [Tooltip("HK 網格為 Z-up(EPSG:2326),Unity 為 Y-up。套用 -90° X 旋轉將 grid-Z(上)對應 Unity-Y(上)")]
         public bool applyZupToYupRotation = true;
 
+        [Header("碰撞器(地面跟隨射線)")]
+        [Tooltip("是否為載入的分塊加入 MeshCollider(供 TouchPlayerController 地面跟隨射線使用)。"
+                 + "效能代價較高(L18 每塊 ~70K 面),但 FPS 地面行走必需。關閉則玩家懸空。")]
+        public bool addChunkColliders = true;
+
         [Header("除錯")]
         public bool drawChunkGizmos = false;
         public bool logStreamingEvents = false;

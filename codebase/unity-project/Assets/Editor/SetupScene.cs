@@ -87,12 +87,18 @@ namespace HKGrid.Editor
             // 起始位置:本地座標(置中、Z-up),0,0,80 → 經 -90° X 旋轉後 = Y-up 80m 上空
             boot.startLocalPos = new Vector3(0f, 0f, 80f);
 
-            // 6. 掛 FlyCameraController(若無)
-            var fly = cam.GetComponent<FlyCameraController>();
-            if (fly == null)
+            // 6. 掛 TouchPlayerController(觸控 FPS;桌面自動回退 WASD)。移除舊版 FlyCameraController。
+            var oldFly = cam.GetComponent<FlyCameraController>();
+            if (oldFly != null)
             {
-                fly = cam.gameObject.AddComponent<FlyCameraController>();
-                Debug.Log("[SetupScene] 掛上 FlyCameraController");
+                Object.DestroyImmediate(oldFly);
+                Debug.Log("[SetupScene] 移除舊版 FlyCameraController");
+            }
+            var player = cam.GetComponent<TouchPlayerController>();
+            if (player == null)
+            {
+                player = cam.gameObject.AddComponent<TouchPlayerController>();
+                Debug.Log("[SetupScene] 掛上 TouchPlayerController");
             }
 
             // 7. 方向光(若場景內無,讓網格有基本照明)

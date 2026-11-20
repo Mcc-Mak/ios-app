@@ -36,6 +36,8 @@ public static class BuildIOS
     /// </summary>
     public static void Export()
     {
+        // 先更新場景(確保 TouchPlayerController 等最新元件已烘培至 Main.unity)
+        HKGrid.Editor.SetupScene.Build();
         ConfigurePlayerSettings();
         BuildPlayer();
     }

@@ -9,16 +9,31 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
-## [Unreleased]
+## [v2.2.0] - 2026-11-20
 
-### 新增(Stage A — L17+ LOD 支援,邁向高解析模型)
+### 重大變更(3D 模型解析度提升)
+- **分塊資料由 L16(20 MB / 162K 三角面)升級至 L18(109 MB / 1.42M 三角面)。** 同一圖幅 `11-NW-15B`(九龍城區),LOD 由第 16 層提升至第 18 層,三角面增加 8.7×,模型大小增加 5.5×。建物立面與屋頂細節顯著改善。L18 為未修剪原始資料(CSDI L18 源檔已足夠小,decimation 與紋理降解析均未觸發)。
+  - 每塊平均 ~5.4 MB / ~71K 三角面(最大塊 8.17 MB / 104K 三角面)。
+  - L18 備份:L17 版(39 MB / 430K 三角面)已備份;可回退。
+  - 注意:L18 分塊較大,iPhone 串流載入時可能短暫卡頓;後續 v2.3.0+ 可考慮 collider 半徑 < render 半徑的效能優化。
+
+### 新增(Stage A — L17+ LOD 支援)
 - **`convert_osgb_to_chunks.py` 支援 L17/L18 等更細 LOD。** 先前 `--lod` 僅接受 `root`/`l15`/`l16`(每子圖幅單一 `.osgb`);L17+ 一個子圖幅會分裂為多個 `.osgb`(四元樹),舊版只取其一。現在 `--lod` 接受任意 `lNN`,自動收集子圖幅內所有對應 LOD 檔,各自 `osgconv` → `pymeshlab` 簡化(預算均分)→ `trimesh` 合併為單一 `.glb` 分塊(多 mesh)。三角面約為 l16 的 4×(l17)/16×(l18)。
   - `SubTile` 欄位重構:`root_osgb: Path` + `lod_files` → `lod_osgbs: list[Path]`(所選 LOD 檔)+ `all_lod_files`(參考用)。
   - `build_chunk_glb` 簽名改為 `obj_paths: list[Path]`:逐 OBJ 簡化 + 暫存,再以 trimesh 收集所有網格合併;第二輪超量簡化亦改為對每個暫存 OBJ 各自再簡化。bbox 改取所有輸入 OBJ 的聯集。
   - 預掃描(`obj_cache`)改為 `dict[int, list[Path]]`,L17+ 多檔全部轉 OBJ 並納入全域 bbox(置中點計算正確)。
   - `--lod` 預設由 `root` 改為 `l16`(與既有文件/推薦一致),新增 `_lod_type` 型別校驗接受 `root` 或 `lNN`。
-- **輸出大小調整指引(模組 docstring)。** 輸出大小主要由 LOD + 紋理像素控制:預設 `l16 + 512px` ≈ 20 MB/圖幅;80 MB 目標食譜 `--lod l17 --max-texture-px 1024`(4× 幾何 + 4× 紋理);無 L17 時 fallback `--lod l16 --max-texture-px 1536`。單塊/總和預算僅為上限,不會無故放大輸出。
-- **驗證閘道維持不變。** 80 MB 目標(`l17 + 1024px`,預估每塊 ~4 MB)遠低於 `validate_chunks.py` 現有上限(≤ 10 MB/塊、≤ 200 MB 總和),無需調整閘道。
+- **輸出大小調整指引(模組 docstring + converter README)。** 輸出大小主要由 LOD + 紋理像素控制:預設 `l16 + 512px` ≈ 20 MB/圖幅;高解析食譜 `--lod l17/l18 --max-texture-px 1024+`。單塊/總和預算僅為上限,不會無故放大輸出。
+
+### 新增(玩家控制 — 觸控 PTZ + FPS 移動)
+- **`TouchPlayerController.cs`** — 第一人稱玩家控制器,取代 `FlyCameraController`(WASD/滑鼠,在 iPhone 無輸入 → 藍屏)。自動偵測平台:
+  - **行動(觸控):** 左半屏浮動搖桿(觸控點出現,拖曳移動,放開消失)+ 右半屏單指拖曳 pan/tilt + 雙指捏合 zoom(FOV 25°–90°)。
+  - **桌面(Editor):** WASD 移動 + 滑鼠右鍵拖曳視角 + 滾輪縮放 + Shift 衝刺(與舊版 FlyCameraController 行為一致)。
+  - **地面跟隨:** 每幀從攝影機上方向下射線(`Physics.Raycast`),保持攝影機在地面 + `eyeHeight`(1.7m)高度。首次命中地面時直接吸附(不 lerp);其後以 `groundFollowLerp` 平滑。
+  - **搖桿 UI:** 執行時以程式生成 Canvas + Image(圓形 sprite 由 `MakeCircleSprite` 程序生成,無外部資源依賴)。觸控時顯示、放開時隱藏。
+- **`ChunkStreamer.cs` 加入 MeshCollider。** 載入分塊後對所有子網格(`GetComponentsInChildren<MeshFilter>`)加入 `MeshCollider`,供地面跟隨射線使用。由 `ChunkStreamConfig.addChunkColliders`(預設 `true`)控制。
+- **`SetupScene.cs`** 以 `TouchPlayerController` 取代 `FlyCameraController`(移除舊版 + 加入新版)。
+- **`BuildIOS.cs`** 匯出前先呼叫 `SetupScene.Build()`,確保 `Main.unity` 已烘培最新元件(`TouchPlayerController` 等)。
 
 ## [v2.1.0] - 2026-11-20
 
