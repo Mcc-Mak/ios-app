@@ -9,6 +9,25 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.2] - 2026-11-20
+
+### 修正(Play mode 體驗問題)
+- **攝影機隨視角飄移/墜落(look up = 飄起、look down = 墜落)。** 根因:舊場景(`Main.unity`)以 v2.2.0 預設值烘焙,`groundRaycastHeight=100` 使地面跟隨射線從 100m 高處打下,打到鄰近建物屋頂或自身 `CharacterController` 膠囊(頂部在眼睛上方 0.15m),導致 `targetY = cameraY + 1.85` → 每幀上升 0.13m = 持續飄移;上升至失去地面接觸後重力啟動 = 墜落。
+  - `TouchPlayerController.Awake` 強制覆寫過時的序列化值(`groundRaycastHeight=2`、`groundRaycastLength=50`、`startPosition=(947,0,-124)`),並停用 `ChunkStreamBootstrapper.overrideStartPos`(舊值 true 會把攝影機設到 `(0,80,0)` 與 startPosition 衝突)。
+  - 地面跟隨射線改用 `RaycastNonAlloc` 並**跳過自身 `CharacterController` collider**,修正射線打到自身膠囊導致的上升漂移。
+  - `Awake` 補上缺失的 `CharacterController`(`RequireComponent` 在載入已存場景時不一定自動補上,舊場景無此元件)。
+  - 新增 `_groundEverFound` 懸停守護:首次找到地面前不施重力(避免分塊尚未載入時穿模墜落);曾找到地面後失去才施重力緩慢下墜;掉至 `fallRespawnY` 以下重生至起始位置。
+- **「2 座島」非 2×2 矩陣(15A/15C 未載入)。** 根因:`loadRadius=600` 太小——攝影機起始 `(947,124)` 時,15A 最近分塊 649m、15C 最近 817m,皆超出 600m 載入半徑,僅 15B + 15D 邊緣薄帶載入。修正:`loadRadius=1000`、`unloadRadius=1350`,4 圖幅(~1350×1050m)皆可從起點載入。
+- **穿透建物/樹木(無水平碰撞)。** 根因:舊版 `ApplyMovement` 直接寫 `transform.position.x/z`,零牆面碰撞檢查。修正:改用 `CharacterController.Move()` 處理水平碰撞,膠囊 `height=eyeHeight+0.3`、`radius=0.3`、`stepOffset=0.4`、`slopeLimit=75`(攝影測量地形坡度大,放寬)。
+- **邊緣瞬移(射線打到屋頂後瞬間吸附)。** 根因:`groundRaycastHeight=100` 射線打到最高 collider(屋頂/樹冠),`groundFollowLerp` 直接吸附到屋頂後掉落。修正:射線起點改為眼睛上方 2m、搜尋 50m,並以 `maxYSnapPerFrame=8` 限幅每幀 Y 移動量。
+
+### 新增(Stage A — 可調式浮空地面移除)
+- **`convert_osgb_to_chunks.py` 新增 `--no-floating-removal` 旗標。** 浮空地面移除(步驟 5b)可能過度刪除合法表面(橋梁、平台、低屋頂)造成地面大洞。新增 `floating_removal` 參數控制:預設啟用(移除浮空層);`--no-floating-removal` 完全停用(保留所有面,可能有疊層)。供後續針對洞孔問題重跑轉換器時使用。
+
+### 變更(場景自動化)
+- **`SetupScene.Build()` 強制更新 `TouchPlayerController` 與 `ChunkStreamConfig` 欄位。** 確保舊場景重新烘焙時寫入正確值(`groundRaycastHeight=2`、`startPosition=(947,0,-124)`、`loadRadius=1000` 等),不再殘留 v2.2.0 預設值。
+- **新增選單項目 `HKGrid > 重建場景 (SetupScene.Build)`。** 可從 Unity 編輯器頂部選單手動重新烘焙場景,不需 batchmode。
+
 ## [v2.2.0] - 2026-11-20
 
 ### 重大變更(3D 模型解析度提升)

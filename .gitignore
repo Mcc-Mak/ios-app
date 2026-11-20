@@ -31,6 +31,9 @@ chunks_out/
 # 轉換器工作目錄
 _work/
 _tmp_*/
+# Python 快取(轉換器執行產物,不提交)
+__pycache__/
+*.pyc
 # 任何 .glb / manifest.json 若落在儲存庫內一律忽略(應由轉換器產生於輸出目錄)
 /*.glb
 /*.gltf

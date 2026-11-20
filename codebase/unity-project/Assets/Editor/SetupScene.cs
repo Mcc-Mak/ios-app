@@ -27,6 +27,7 @@ namespace HKGrid.Editor
         private const string ConfigDir = "Assets/Configs";
 
         /// <summary>batchmode 進入點。建立/更新場景與 Config 資產。</summary>
+        [MenuItem("HKGrid/重建場景 (SetupScene.Build)")]
         public static void Build()
         {
             Debug.Log("[SetupScene] 開始自動化場景建置");
@@ -83,9 +84,9 @@ namespace HKGrid.Editor
             }
             boot.config = config;
             boot.camera = cam;
-            boot.overrideStartPos = true;
-            // 起始位置:本地座標(置中、Z-up),0,0,80 → 經 -90° X 旋轉後 = Y-up 80m 上空
-            boot.startLocalPos = new Vector3(0f, 0f, 80f);
+            // 不由 Bootstrapper 覆寫起始位置;TouchPlayerController.Awake 負責定位
+            // (舊版 overrideStartPos=true 會與 TouchPlayerController 競爭 Awake 順序)
+            boot.overrideStartPos = false;
 
             // 6. 掛 TouchPlayerController(觸控 FPS;桌面自動回退 WASD)。移除舊版 FlyCameraController。
             var oldFly = cam.GetComponent<FlyCameraController>();
@@ -100,6 +101,30 @@ namespace HKGrid.Editor
                 player = cam.gameObject.AddComponent<TouchPlayerController>();
                 Debug.Log("[SetupScene] 掛上 TouchPlayerController");
             }
+
+            // 6a. 確保 CharacterController 存在(TouchPlayerController 需要它處理建物碰撞)
+            var cc = cam.GetComponent<CharacterController>();
+            if (cc == null)
+            {
+                cc = cam.gameObject.AddComponent<CharacterController>();
+                Debug.Log("[SetupScene] 掛上 CharacterController");
+            }
+
+            // 6b. 強制更新 TouchPlayerController 欄位(覆寫舊場景殘留的 v2.2.0 預設值)
+            //     舊值 groundRaycastHeight=100 會讓射線從 100m 高處打下,打到屋頂/自身膠囊
+            //     →「看上方=飄起、看下方=墜落」問題
+            player.groundRaycastHeight = 2f;
+            player.groundRaycastLength = 50f;
+            player.startPosition = new Vector3(947f, 0f, -124f);
+            player.startPitch = 25f;
+            player.startYaw = 0f;
+            EditorUtility.SetDirty(player);
+
+            // 6c. 強制更新 Config 值(確保舊資產也套用新參數)
+            config.loadRadius = 1000f;
+            config.unloadRadius = 1350f;
+            config.addChunkColliders = true;
+            EditorUtility.SetDirty(config);
 
             // 7. 方向光(若場景內無,讓網格有基本照明)
             Light dir = Object.FindObjectOfType<Light>();

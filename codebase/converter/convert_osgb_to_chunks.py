@@ -279,6 +279,7 @@ def build_chunk_glb(
     max_texture_px: int,
     decimate_threshold: int,
     recenter: np.ndarray,
+    floating_removal: bool = True,
 ) -> tuple[int, int, np.ndarray, np.ndarray]:
     """
     載入一個子圖幅的所有 OBJ(含紋理),以 pymeshlab 的 UV 保留簡化至目標大小,
@@ -421,13 +422,21 @@ def build_chunk_glb(
     #
     # 35m → 50m 半徑:地面層約覆蓋 60% 面積,50m 可涵蓋 ~78% 浮空面;
     # 邊界外(>50m 無地面)的浮空面視為該區域的地面,保留。
-    from scipy.spatial import cKDTree
-    R = 50.0  # m,局部地面搜尋半徑
-    MIN_DZ = 3.0  # m,高於局部地面此值才視為浮空
-    MAX_DZ = 20.0  # m,高於此值視為屋頂,保留
-    deduped: list[trimesh.Trimesh] = []
-    removed_floating = 0
-    for g in geometries:
+    #
+    # ⚠ v2.2.2:此步驟可能過度移除合法表面(橋梁、平台、低屋頂),造成地面大洞。
+    #   改以 floating_removal 參數控制:False = 完全停用(保留所有面,可能有疊層);
+    #   True = 啟用(預設,移除浮空層但可能產生洞)。
+    if not floating_removal:
+        log.debug("  浮空地面移除:已停用(floating_removal=False)")
+        removed_floating = 0
+    else:
+      from scipy.spatial import cKDTree
+      R = 50.0  # m,局部地面搜尋半徑
+      MIN_DZ = 3.0  # m,高於局部地面此值才視為浮空
+      MAX_DZ = 20.0  # m,高於此值視為屋頂,保留
+      deduped: list[trimesh.Trimesh] = []
+      removed_floating = 0
+      for g in geometries:
         n = len(g.faces)
         if n < 10:
             deduped.append(g)
@@ -449,7 +458,7 @@ def build_chunk_glb(
             h_xy = fc[horiz_idx, :2]
             h_z = fc[horiz_idx, 2]
 
-            # KDTree 查每個水平面 35m 半徑內的所有水平面,取最低 Z
+            # KDTree 查每個水平面 50m 半徑內的所有水平面,取最低 Z
             tree = cKDTree(h_xy)
             float_mask = np.zeros(n, dtype=bool)
             for ii, face_i in enumerate(horiz_idx):
@@ -471,9 +480,9 @@ def build_chunk_glb(
             log.debug("  浮空地面移除跳過(%s)", e)
         if hasattr(g, "faces") and len(g.faces) > 0:
             deduped.append(g)
-    geometries = deduped
-    if removed_floating > 0:
-        log.info("  浮空地面移除總計: %d faces", removed_floating)
+      geometries = deduped
+      if removed_floating > 0:
+          log.info("  浮空地面移除總計: %d faces", removed_floating)
 
     for g in geometries:
         g.vertices = g.vertices - recenter
@@ -623,6 +632,9 @@ def main() -> int:
                         "(每子圖幅分裂為多檔,自動合併,三角面約 l16 的 4×/16×)。"
                         "接受 root 或 lNN。預設 l16。")
     p.add_argument("--verbose", action="store_true")
+    p.add_argument("--no-floating-removal", action="store_true",
+                   help="停用浮空地面移除(v2.2.2 新增)。預設啟用,但可能過度移除"
+                        "合法表面(橋梁、平台)造成地面大洞。停用則保留所有面(可能有疊層)。")
     args = p.parse_args()
 
     setup_logging(args.verbose)
@@ -728,6 +740,7 @@ def main() -> int:
                 max_texture_px=args.max_texture_px,
                 decimate_threshold=args.decimate_threshold,
                 recenter=centroid,
+                floating_removal=not args.no_floating_removal,
             )
         except Exception as e:
             log.error("  分塊建置失敗: %s", e)
