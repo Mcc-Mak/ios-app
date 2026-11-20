@@ -69,6 +69,23 @@ python codebase/converter/convert_osgb_to_chunks.py \
 
 `--input` 亦接受**已解壓的目錄**(結構為 `<root>/<SheetNo>-N/Tile_+X_+Y.osgb`)。輸入 zip 會先解壓到 `<output>/_work/osgb_extract/`。
 
+### 高解析度輸出(80 MB 目標)
+
+輸出大小主要由 **LOD + 紋理像素** 控制(單塊/總和預算僅為上限)。預設 `l16 + 512px` ≈ 20 MB/圖幅。80 MB 目標食譜:
+
+```bash
+python codebase/converter/convert_osgb_to_chunks.py \
+  --input /path/to/11-NW-15B_OSGB.zip \
+  --output /path/to/chunks_out_80mb \
+  --osgconv /path/to/osgconv \
+  --lod l17 --max-texture-px 1024
+```
+
+- `--lod l17`:三角面約 l16 的 4×(建物立面更細)。
+- `--max-texture-px 1024`:紋理約 512px 的 4×(地面/空拍紋理更銳利,對地面視角 FPS 尤其重要)。
+- 合計約 80 MB,每塊 ~4 MB,遠低於驗證閘道(≤ 10 MB/塊、≤ 200 MB 總和)。
+- 若資料無 L17 檔(子圖幅目錄下無 `_L17_` 檔),fallback:`--lod l16 --max-texture-px 1536`(純紋理提升至 ~80 MB)。
+
 ### 完整參數
 
 | 參數 | 預設 | 說明 |
@@ -80,7 +97,7 @@ python codebase/converter/convert_osgb_to_chunks.py \
 | `--max-total-mb` | `200`(或 `MAX_TOTAL_MB`) | 全圖幅分塊總和最大 MB |
 | `--max-texture-px` | `512`(或 `MAX_TEXTURE_PX`) | 紋理最長邊像素 |
 | `--decimate-threshold` | `3000` | 低於此三角面數的網格不簡化 |
-| `--lod` | `root` | LOD 層級(目前僅 `root`) |
+| `--lod` | `l16` | LOD 層級(`root` 或 `lNN`,如 `l15`/`l16`/`l17`/`l18`)。l17+ 一子圖幅多檔自動合併,三角面約 l16 的 4×(l17)/16×(l18) |
 | `--verbose` | 關 | 除錯日誌 |
 
 ### 環境變數(可替代 CLI)
