@@ -55,13 +55,12 @@
   - `deploy:docs` 加入 `needs: build`,確保 `workflow_dispatch` 時 deploy 在 build 完成後才執行(重新產生 apps.json);push 時 build 被跳過,deploy 仍正常執行。
   - `test:sast` 維持停用(待 Unity 授權續期 + 設定 CI secret 後以 GameCI 重建)。
 
-### 修正(建置/CI — IL2CPP 崩潰 + 6 小時 hang 與 runner 版本)
-- **`build:ipa` job 的 IL2CPP 崩潰與 hang 已一併修正。** 兩個獨立根因:
-  - **崩潰(`System.ConsolePal` OOM → ARCHIVE FAILED):** Tuanjie 的 `il2cpp` 為 .NET 應用程式,`ConsolePal..cctor` 以 `ioctl(TIOCGWINSZ)` 查詢終端尺寸,在 pipe(非 TTY)上失敗並以垃圾值配置陣列 → `OutOfMemoryException`。實測 fd 0 必須是「controlling terminal」——僅 `dup2` PTY slave 而未設 controlling terminal 仍崩潰(run `44654998542` 驗證:wrapper 執行、child `execv`,但 `il2cpp.real` 仍崩潰)。
-  - **hang(6 小時,run `44498856814`):** 前版 `pty.spawn` 的 `_copy` 在 stdout 緩衝達 4096 bytes 時停止讀取 master → PTY 緩衝(64KB)填滿 → `il2cpp` 阻塞於寫入 → 死結 6 小時(取消時遺留 orphan Python 行程,且 09:44 起零輸出)。
-  - **解法:** 新 wrapper `il2cpp_pty_wrapper.sh` 採 `/bin/sh` 外殼 + 內嵌 python3(heredoc),確保被建置階段以 exec 呼叫時核心恆接受(先前純 `.py` + `#!/usr/bin/env python3` shebang 未被實際執行,`il2cpp.real` 以 pipe fd 直行而崩潰,run `44653433207` 驗證)。內嵌 python 以 **`pty.fork()`**(底層 `os.forkpty()` 核心呼叫,做 `login_tty`:`setsid` + **`TIOCSCTTY` 設 controlling terminal** + `dup2` slave 至 0/1/2)——與 `pty.spawn` 相同之子行程設定,經實證可防崩潰;手動 `fork`+`dup2`+`setsid` 不設 `TIOCSCTTY`,故失敗。父行程以**非阻塞排空**取代 `pty._copy`:持續讀 master(無 high-water,PTY 緩衝永不填滿,`il2cpp` 永不阻塞——修正 hang),stdout 設非阻塞 + `pending` 緩衝(上限 64MB),可寫時才排空;附 15 分鐘無輸出看門狗(強殺 + 退出碼 124)防 hang 回歸。
+### 修正(建置/CI — IL2CPP 崩潰 + runner 版本)
+- **`build:ipa` job 的 IL2CPP 崩潰已修正。** 根因為 [.NET 6 在 macOS Apple Silicon(arm64)虛擬機的 ReadyToRun bug](https://github.com/dotnet/runtime/issues/64103):R2R 編譯的程式碼傳遞 variadic 引數時使用暫存器而非堆疊,違反 Apple arm64 ABI;`ConsolePal..cctor` 建立物件陣列時觸發 → `OutOfMemoryException: Array dimensions exceeded supported range` → `ARCHIVE FAILED`。GitHub Actions `macos-15` runner 為 arm64 VM,觸發此 bug。(此 bug 已於 .NET 6.0.5 修復,但 Tuanjie 的 il2cpp 可能使用較舊 .NET 6.0.x。)
+  - **診斷過程:** 先前以 PTY(`pty.fork` + controlling terminal + `TIOCSWINSZ` 24×80)、移除 `TERM` 環境變數等方式嘗試修正,均未成功——run `44657434200` 診斷證實 `isatty(0/1/2)=True`、`TIOCGWINSZ` 回傳 24×80、`TERM=None`,崩潰仍發生。證實崩潰與終端完全無關,純為 .NET arm64 R2R bug。舊 `pty.spawn` 版本的「6 小時 hang」(run `44498856814`)實為 `pty._copy` 輸出死結遮蔽了同樣的即時崩潰。
+  - **修正:** `il2cpp_pty_wrapper.sh` 設 `COMPlus_ReadyToRun=0`(及 `DOTNET_ReadyToRun=0`)停用 ReadyToRun,改用 JIT 編譯,避開 R2R bug。另設 `stdin=/dev/null` 防 il2cpp 讀 stdin 阻塞。不再需要 PTY / Python / 非阻塞排空 / 看門狗——崩潰與 hang 均不再發生。
 - **CI runner 由 `macos-latest`(Xcode 26.6)改為 `macos-15` + Xcode `16.2`。** Xcode 26.x 與 Tuanjie 2022.3 匯出之 Xcode 專案相容性不佳;Xcode 16.2 為 Unity 2022.3 LTS 同期版本,相容性最佳(已驗證 setup-xcode 於 macos-15 成功選取 16.2)。`maxim-lobanov/setup-xcode` 改釘 `xcode-version: '16.2'`。
-- **`cicd.yml` 之「修補 IL2CPP」步驟** copy `il2cpp_pty_wrapper.sh`,並更新註解說明「崩潰 + hang」雙重修正。
+- **`cicd.yml` 之「修補 IL2CPP」步驟** copy `il2cpp_pty_wrapper.sh`(R2R 停用 wrapper),job env 設 `COMPlus_ReadyToRun=0` + `DOTNET_ReadyToRun=0`。
 
 ### 新增(建置腳本)
 - **`codebase/scripts/build_unity_ipa.sh`** — 完整 iOS 建置管線腳本,支援三種模式:

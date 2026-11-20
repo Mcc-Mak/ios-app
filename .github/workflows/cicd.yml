@@ -168,14 +168,13 @@ jobs:
     permissions:
       contents: write   # 上傳 .ipa / dSYM / manifest.json 至 release
     env:
-      # IL2CPP 為 .NET 應用程式;在無 TTY 的 CI 環境下,ConsolePal 初始化會崩潰
-      # (OutOfMemoryException: Array dimensions exceeded supported range —
-      # .NET 6 在 macOS 管道環境的已知問題)。
-      # TERM/COLUMNS/LINES 為 fallback;真正的修正是下方「修補 IL2CPP」步驟安裝的
-      # il2cpp_pty_wrapper.sh(pty.fork 設 controlling terminal + 非阻塞輸出排空)。
-      TERM: dumb
-      COLUMNS: '80'
-      LINES: '24'
+      # Tuanjie 的 il2cpp 為 .NET 6 應用程式。.NET 6 在 macOS Apple Silicon(arm64)
+      # 虛擬機中,ReadyToRun 程式碼傳遞 variadic 引數違反 arm64 ABI,ConsolePal..cctor
+      # 建立陣列時崩潰(dotnet/runtime#64103)。macos-15 runner 為 arm64 VM,觸發此 bug。
+      # 真正的修正是下方「修補 IL2CPP」步驟安裝的 il2cpp_pty_wrapper.sh
+      # (COMPlus_ReadyToRun=0 停用 R2R,改用 JIT)。
+      COMPlus_ReadyToRun: '0'
+      DOTNET_ReadyToRun: '0'
     steps:
       - name: 取出原始碼
         uses: actions/checkout@v4
@@ -211,22 +210,20 @@ jobs:
           echo "解壓完成。.xcodeproj:"
           find build/ios-xcode -maxdepth 1 -name "*.xcodeproj"
 
-      - name: 修補 IL2CPP(PTY wrapper:修正 ConsolePal 崩潰 + 輸出死結 hang)
+      - name: 修補 IL2CPP(停用 ReadyToRun,修正 .NET 6 arm64 VM 崩潰)
         run: |
           set -euo pipefail
-          # Tuanjie 2022.3 的 il2cpp 為 .NET 應用程式。在無 TTY 的 CI 管道環境下有兩個問題:
-          #   (1) ConsolePal 靜態建構式(.cctor)以 ioctl(TIOCGWINSZ) 查詢終端尺寸,在 pipe
-          #       上失敗並以垃圾值配置陣列 → OutOfMemoryException → ARCHIVE FAILED。
-          #       實測 fd 0 必須是「controlling terminal」——僅 dup2 PTY slave 而未設
-          #       controlling terminal 仍崩潰(run 44654998542 驗證)。
-          #   (2) 前版 pty.spawn 的 _copy 在 stdout 緩衝達 4096 時停讀 master → PTY 緩衝填滿
-          #       → il2cpp 阻塞 → 6 小時死結(run 44498856814)。
-          # 解法:il2cpp_pty_wrapper.sh(/bin/sh 外殼 + 內嵌 python3,確保被建置階段 exec):
-          #   (1) pty.fork()(底層 os.forkpty() 核心呼叫,做 login_tty:setsid + TIOCSCTTY
-          #       設 controlling terminal + dup2 slave 至 0/1/2)——與 pty.spawn 相同之子行程
-          #       設定,經實證可防崩潰。手動 fork+dup2+setsid 不設 TIOCSCTTY,故失敗。
-          #   (2) 父行程持續讀 master(無 high-water)+ 非阻塞 stdout + pending 緩衝,取代
-          #       pty._copy;附 15 分鐘無輸出看門狗防 hang 回歸。
+          # Tuanjie 2022.3 的 il2cpp 為 .NET 6 應用程式。.NET 6 在 macOS Apple Silicon
+          # (arm64)虛擬機中,ReadyToRun(R2R)編譯的程式碼傳遞 variadic 引數時使用暫存器
+          # 而非堆疊,違反 Apple arm64 ABI。ConsolePal..cctor 建立物件陣列時觸發此 bug →
+          # OutOfMemoryException: Array dimensions exceeded supported range → ARCHIVE FAILED
+          # (dotnet/runtime#64103)。macos-15 runner 為 arm64 VM,觸發此 bug。
+          #
+          # 先前嘗試(PTY / controlling terminal / TIOCSWINSZ / TERM)均未修正——證實崩潰
+          # 與終端完全無關,純為 .NET arm64 R2R bug。
+          #
+          # 修正:il2cpp_pty_wrapper.sh 設 COMPlus_ReadyToRun=0 停用 R2R,改用 JIT 編譯
+          # (避開 bug)。另設 stdin=/dev/null 防 il2cpp 讀 stdin 阻塞。
           #
           # 注意:tarball 在 Windows 建立,不保留 Unix 執行位元,故需 chmod +x。
           for arch in deploy_arm64 deploy_x86_64; do
@@ -236,7 +233,7 @@ jobs:
               chmod +x "$il2cpp_dir/il2cpp.real"
               cp codebase/scripts/il2cpp_pty_wrapper.sh "$il2cpp_dir/il2cpp"
               chmod +x "$il2cpp_dir/il2cpp"
-              echo "✅ 已安裝 PTY wrapper(pty.fork + 非阻塞排空)於 $arch/il2cpp"
+              echo "✅ 已安裝 R2R 停用 wrapper(COMPlus_ReadyToRun=0)於 $arch/il2cpp"
             fi
           done
 
