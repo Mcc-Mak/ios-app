@@ -25,6 +25,11 @@
   - `--lod` 預設由 `root` 改為 `l16`(與既有文件/推薦一致),新增 `_lod_type` 型別校驗接受 `root` 或 `lNN`。
 - **輸出大小調整指引(模組 docstring + converter README)。** 輸出大小主要由 LOD + 紋理像素控制:預設 `l16 + 512px` ≈ 20 MB/圖幅;高解析食譜 `--lod l17/l18 --max-texture-px 1024+`。單塊/總和預算僅為上限,不會無故放大輸出。
 
+### 修正(多圖幅定位 + 攝影機座標)
+- **分塊容器節點改用 positionOffset 定位(修正 4 圖幅全疊在原點)。** 先前 ChunkStreamer 將所有分塊容器設於 `localPosition = Vector3.zero`,單圖幅可行(GLB 頂點已含位置),但合併 4 圖幅時各圖幅 GLB 座標獨立 → 全部疊在原點 → 只見 1 個圖幅。修正:`ChunkManifest.ChunkRecord` 新增 `positionOffset` 欄位(圖幅偏移),ChunkStreamer 以 `rec.PositionOffsetVector` 定位容器節點。單圖幅 positionOffset=[0,0,0],行為不變。
+- **合併 manifest 的 centroid 改為全域座標(修正距離計算)。** 先前合併後 centroid 仍為本地座標(相對各圖幅 origin),與攝影機全域座標不符 → 距離 ~1300m → 載入半徑內無分塊。修正:centroid = 本地 + 圖幅偏移(全域),bbox 同。positionOffset 與 centroid 分離:前者用於渲染定位,後者用於距離計算。
+- **攝影機起始位置修正為 Unity Y-up 座標。** 先前 `startPosition = (947, 0, 124)` 為 manifest Z-up 座標,未套用 -90° X 旋轉。修正:`(947, 0, -124)` = manifest (947, 124, 0) 經 -90° X 旋轉後的 Unity 世界座標(X=東, Y=上, Z=-北)。
+
 ### 新增(多圖幅合併 + 起始位置 + 控制修正)
 - **4 圖幅合併為單一分塊集。** 11-NW-15A/B/C/D 的 L18 分塊(共 80 塊,522 MB,6.2M 三角面)合併為單一 `manifest.json` + `.glb` 集,座標統一相對於 15A 原點。新 `merge_tiles.py` 腳本:讀取各圖幅 manifest、計算偏移量、重新命名(前綴圖幅代號)、合併 centroid/bbox。
 - **起始位置 = WGS84 [22.3319, 114.1871](九龍城區)。** 破解 CSDI 座標系:manifest 的 EPSG:2326 座標實為 HK1980 Grid 減 800000(本地慣例)。目標經緯度 → EPSG:2326 E=837322, N=821424 → manifest 空間 E=37322, N=21424 → 合併世界座標 (947, 124)(相對 15A 原點)。`TouchPlayerController.startPosition` 預設此值。

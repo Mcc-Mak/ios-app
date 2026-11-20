@@ -57,21 +57,29 @@ namespace HKGrid.Streaming
     [Serializable]
     public class ChunkRecord
     {
-        public string id;              // "x245_y143"
+        public string id;              // "x245_y143" 或合併後 "15B_x245_y143"
         public int grid_x;
         public int grid_y;
         public float[] bbox_min;       // 本地座標(已置中),公尺
         public float[] bbox_max;
         public float[] centroid;       // 本地座標(已置中),公尺
+        public float[] positionOffset; // 合併多圖幅時的圖幅偏移(相對全域原點);單圖幅為 [0,0,0]
         public string file;            // "chunk_x245_y143.glb"
         public long bytes;
         public int triangles;
         public List<string> neighbors; // 相鄰 chunk id
         public int priority;
+        public string tile;            // 合併時的圖幅代號(如 "15B");單圖幅可能為空
 
         public Vector3 CentroidVector => ChunkManifest.ToVec3(centroid);
         public Vector3 BboxMinVector => ChunkManifest.ToVec3(bbox_min);
         public Vector3 BboxMaxVector => ChunkManifest.ToVec3(bbox_max);
+
+        /// <summary>合併多圖幅時的圖幅偏移(相對全域原點)。單圖幅為 Vector3.zero。</summary>
+        public Vector3 PositionOffsetVector =>
+            positionOffset != null && positionOffset.Length >= 3
+                ? ChunkManifest.ToVec3(positionOffset)
+                : Vector3.zero;
 
         /// <summary>本地座標的半徑(用於載入距離判斷的包圍球)。</summary>
         public float BoundingRadius =>

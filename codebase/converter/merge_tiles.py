@@ -65,9 +65,9 @@ def main() -> int:
 
     for code, d, m in manifests:
         origin = m["origin"]
-        # 偏移量 = 此圖幅 origin - 全域原點(在 HK 網格座標,X=東,Y=北,Z=高)
-        # 但分塊的 centroid 是「相對於圖幅 origin 的本地座標」
-        # 所以分塊的全域 centroid = (origin - global_origin) + chunk_centroid
+        # 圖幅偏移量 = 此圖幅 origin - 全域原點(HK 網格座標,X=東,Y=北,Z=高)
+        # GLB 頂點已相對此圖幅 origin 置中,故容器節點需設於 positionOffset
+        # 以正確定位多圖幅(否則全部疊在原點)
         offset = [origin[i] - global_origin[i] for i in range(3)]
 
         for c in m["chunks"]:
@@ -81,20 +81,22 @@ def main() -> int:
             else:
                 print(f"WARNING: {old_glb} 不存在,跳過", file=sys.stderr)
 
-            # 全域 centroid = 偏移 + 本地 centroid
+            # centroid = 本地座標 + 圖幅偏移 = 全域座標(供 ChunkStreamer 距離計算)
+            # positionOffset = 圖幅偏移(供 ChunkStreamer 容器節點定位)
+            # 兩者分離:centroid 用於「該載入哪些塊」,positionOffset 用於「塊放在哪裡」
             local_centroid = c.get("centroid", [0, 0, 0])
             global_centroid = [local_centroid[i] + offset[i] for i in range(3)]
 
             merged_chunk = dict(c)
             merged_chunk["id"] = f"{code}_{c['id']}"
             merged_chunk["file"] = new_name
-            merged_chunk["centroid"] = global_centroid
-            # bbox 也偏移
-            if "bbox" in c:
-                merged_chunk["bbox"] = [
-                    [c["bbox"][0][i] + offset[i] for i in range(3)],
-                    [c["bbox"][1][i] + offset[i] for i in range(3)],
-                ]
+            merged_chunk["centroid"] = global_centroid   # 全域座標(距離計算用)
+            merged_chunk["positionOffset"] = offset      # 圖幅偏移(渲染定位用)
+            # bbox 也用全域座標(供 BoundingRadius 計算,與 centroid 一致)
+            if "bbox_min" in c:
+                merged_chunk["bbox_min"] = [c["bbox_min"][i] + offset[i] for i in range(3)]
+            if "bbox_max" in c:
+                merged_chunk["bbox_max"] = [c["bbox_max"][i] + offset[i] for i in range(3)]
             merged_chunk["tile"] = code
             all_chunks.append(merged_chunk)
             total_bytes += c.get("bytes", 0)

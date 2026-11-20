@@ -336,6 +336,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fe4202bb75130354aa2c1f0af51ef802, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  startPosition: {x: 947, y: 0, z: 124}
+  startYaw: 0
+  startPitch: 25
   moveSpeed: 5
   sprintMultiplier: 2
   lookSensitivityTouch: 0.2
@@ -356,6 +359,8 @@ MonoBehaviour:
     m_Bits: 4294967295
   joystickRadius: 120
   joystickDeadzone: 0.1
+  joystickMarginX: 160
+  joystickMarginY: 160
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

@@ -28,8 +28,8 @@ namespace HKGrid.Streaming
     public class TouchPlayerController : MonoBehaviour
     {
         [Header("起始位置")]
-        [Tooltip("起始位置(合併世界座標,相對全域原點)。預設 = WGS84 [22.3319, 114.1871] 九龍城區")]
-        public Vector3 startPosition = new Vector3(947f, 0f, 124f);
+        [Tooltip("起始位置(Unity 世界座標,Y-up。已套用 Z-up→Y-up 旋轉)。預設 = WGS84 [22.3319, 114.1871] 九龍城區")]
+        public Vector3 startPosition = new Vector3(947f, 0f, -124f);
         [Tooltip("起始水平視角(Yaw,度)。0=+Z/南,90=+X/東")]
         public float startYaw = 0f;
         [Tooltip("起始俯角(Pitch,度)。正值=向下看,看到地面/城市")]

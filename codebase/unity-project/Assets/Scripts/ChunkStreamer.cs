@@ -150,12 +150,12 @@ namespace HKGrid.Streaming
                 }
 
                 // 在 worldRoot 下建立分塊容器節點。
-                // 重要:GLB 頂點已由轉換器置中(全圖幅 origin 已內嵌於頂點座標),
-                // 因此容器節點必須在本地原點(Vector3.zero),不可再偏移 centroid,
-                // 否則會造成雙重偏移 → 分塊散開 150m 間距(「多個島」視覺缺陷)。
+                // GLB 頂點已由轉換器置中(相對各圖幅 origin),容器節點需設於 positionOffset
+                // (合併多圖幅時為圖幅偏移;單圖幅為 Vector3.zero,行為不變)。
+                // 若仍在 localPosition=zero,多圖幅分塊會全部疊在原點 → 只見 1 個圖幅。
                 var chunkGo = new GameObject($"chunk_{rec.id}");
                 chunkGo.transform.SetParent(_worldRoot, worldPositionStays: false);
-                chunkGo.transform.localPosition = Vector3.zero;
+                chunkGo.transform.localPosition = rec.PositionOffsetVector;
 
                 // GameObjectInstantiator ctor:(IGltfReadable, Transform, ICodeLogger, InstantiationSettings)
                 var instantiator = new GameObjectInstantiator(gltf, chunkGo.transform, _logger);
