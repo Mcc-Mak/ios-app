@@ -9,7 +9,7 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
-## [v2.1.0] - 2026-11-19
+## [v2.1.0] - 2026-11-20
 
 ### 重大變更
 - **引擎由 Unity 6 LTS 改為 Tuanjie(團結引擎)2022.3.61t15。** 使用者本機僅有 Tuanjie(Untiy China 的 Unity 2022.3 LTS 中國分支),且明確選擇以既有引擎繼續。**ADR-011** 修訂 ADR-009 的引擎選擇;三階段管線架構不變,glTFast 6.0.1 套件在 Tuanjie 2022.3 上經實測可正常安裝與編譯。
@@ -55,12 +55,13 @@
   - `deploy:docs` 加入 `needs: build`,確保 `workflow_dispatch` 時 deploy 在 build 完成後才執行(重新產生 apps.json);push 時 build 被跳過,deploy 仍正常執行。
   - `test:sast` 維持停用(待 Unity 授權續期 + 設定 CI secret 後以 GameCI 重建)。
 
-### 修正(建置/CI — IL2CPP 崩潰 + runner 版本)
+### 修正(建置/CI — IL2CPP 崩潰 + storyboard 編譯 + runner 版本)
 - **`build:ipa` job 的 IL2CPP 崩潰已修正。** 根因為 [.NET 6 在 macOS Apple Silicon(arm64)虛擬機的 ReadyToRun bug](https://github.com/dotnet/runtime/issues/64103):R2R 編譯的程式碼傳遞 variadic 引數時使用暫存器而非堆疊,違反 Apple arm64 ABI;`ConsolePal..cctor` 建立物件陣列時觸發 → `OutOfMemoryException: Array dimensions exceeded supported range` → `ARCHIVE FAILED`。GitHub Actions `macos-15` runner 為 arm64 VM,觸發此 bug。(此 bug 已於 .NET 6.0.5 修復,但 Tuanjie 的 il2cpp 可能使用較舊 .NET 6.0.x。)
   - **診斷過程:** 先前以 PTY(`pty.fork` + controlling terminal + `TIOCSWINSZ` 24×80)、移除 `TERM` 環境變數等方式嘗試修正,均未成功——run `44657434200` 診斷證實 `isatty(0/1/2)=True`、`TIOCGWINSZ` 回傳 24×80、`TERM=None`,崩潰仍發生。證實崩潰與終端完全無關,純為 .NET arm64 R2R bug。舊 `pty.spawn` 版本的「6 小時 hang」(run `44498856814`)實為 `pty._copy` 輸出死結遮蔽了同樣的即時崩潰。
   - **修正:** `il2cpp_pty_wrapper.sh` 設 `COMPlus_ReadyToRun=0`(及 `DOTNET_ReadyToRun=0`)停用 ReadyToRun,改用 JIT 編譯,避開 R2R bug。另設 `stdin=/dev/null` 防 il2cpp 讀 stdin 阻塞。不再需要 PTY / Python / 非阻塞排空 / 看門狗——崩潰與 hang 均不再發生。
 - **CI runner 由 `macos-latest`(Xcode 26.6)改為 `macos-15` + Xcode `16.2`。** Xcode 26.x 與 Tuanjie 2022.3 匯出之 Xcode 專案相容性不佳;Xcode 16.2 為 Unity 2022.3 LTS 同期版本,相容性最佳(已驗證 setup-xcode 於 macos-15 成功選取 16.2)。`maxim-lobanov/setup-xcode` 改釘 `xcode-version: '16.2'`。
 - **`cicd.yml` 之「修補 IL2CPP」步驟** copy `il2cpp_pty_wrapper.sh`(R2R 停用 wrapper),job env 設 `COMPlus_ReadyToRun=0` + `DOTNET_ReadyToRun=0`。
+- **`ibtool` 編譯 storyboard 失敗(iOS 18.2 Platform Not Installed)已修正。** IL2CPP 崩潰修正後(run `44658176551` 通過 GameAssembly 階段),`xcodebuild` 於 `CompileStoryboard LaunchScreen-iPhone.storyboard` 步驟失敗:`ibtool` 報「iOS 18.2 Platform Not Installed」——`macos-15` runner 的 Xcode 16.2 未預裝 iOS 模擬器平台,而 `ibtool` 編譯 storyboard 需要該平台。修正:`cicd.yml` 新增「安裝 iOS 平台」步驟,於建置前執行 `xcodebuild -downloadPlatform iOS` 安裝缺失平台。修正後 run `44659117033` 首次成功完成完整封存(10m57s),產出 `HKGridVoxel-2.1.0.ipa`(24,091,960 bytes / ~23 MB)+ dSYM + manifest.json 並上傳至 `v2.1.0` release。
 
 ### 新增(建置腳本)
 - **`codebase/scripts/build_unity_ipa.sh`** — 完整 iOS 建置管線腳本,支援三種模式:
