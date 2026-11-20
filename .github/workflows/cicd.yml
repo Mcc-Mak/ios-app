@@ -210,6 +210,18 @@ jobs:
           echo "解壓完成。.xcodeproj:"
           find build/ios-xcode -maxdepth 1 -name "*.xcodeproj"
 
+      - name: 安裝 iOS 平台(ibtool 編譯 storyboard 需要)
+        run: |
+          set +e
+          echo "=== iPhoneSimulator.platform ==="
+          ls -d /Applications/Xcode_16.2.app/Contents/Developer/Platforms/iPhoneSimulator.platform 2>/dev/null && echo "已安裝" || echo "未安裝"
+          echo "=== 模擬器 runtime ==="
+          xcrun simctl list runtimes 2>&1 | head -20
+          echo "=== 嘗試安裝 iOS 平台 ==="
+          xcodebuild -downloadPlatform iOS 2>&1 || echo "(下載失敗或已安裝)"
+          echo "=== 安裝後再檢查 ==="
+          xcrun simctl list runtimes 2>&1 | head -20
+
       - name: 修補 IL2CPP(停用 ReadyToRun,修正 .NET 6 arm64 VM 崩潰)
         run: |
           set -euo pipefail
