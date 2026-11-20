@@ -172,7 +172,7 @@ jobs:
       # (OutOfMemoryException: Array dimensions exceeded supported range —
       # .NET 6 在 macOS 管道環境的已知問題)。
       # TERM/COLUMNS/LINES 為 fallback;真正的修正是下方「修補 IL2CPP」步驟安裝的
-      # il2cpp_pty_wrapper.py(PTY stdout/stderr + /dev/null stdin)。
+      # il2cpp_pty_wrapper.py(fd 0/1/2 全接 PTY + 非阻塞輸出排空)。
       TERM: dumb
       COLUMNS: '80'
       LINES: '24'
@@ -214,13 +214,15 @@ jobs:
       - name: 修補 IL2CPP(PTY wrapper:修正 ConsolePal 崩潰 + stdin hang)
         run: |
           set -euo pipefail
-          # Tuanjie 2022.3 的 il2cpp 為 .NET 應用程式。在無 TTY 的 CI 管道環境下:
-          #   (1) ConsolePal 靜態建構式呼叫 ioctl(TIOCGWINSZ) 查詢終端尺寸,在 pipe
-          #       上失敗並使用垃圾值配置陣列 → OutOfMemoryException → ARCHIVE FAILED。
-          #   (2) 前版以 pty.spawn 包裹雖修正 (1),但 pty.spawn 把子行程 stdin 也接成
-          #       PTY,il2cpp 讀 stdin 永久阻塞 → job hang 到 6 小時上限。
-          # 解法:il2cpp_pty_wrapper.py 給 stdout/stderr 一個 PTY(讓 ioctl 成功,回傳
-          #       24x80),stdin 給 /dev/null(讀取立即 EOF,不阻塞)。
+          # Tuanjie 2022.3 的 il2cpp 為 .NET 應用程式。在無 TTY 的 CI 管道環境下有兩個問題:
+          #   (1) ConsolePal 靜態建構式(.cctor)以 ioctl(TIOCGWINSZ) 查詢終端尺寸,在 pipe
+          #       上失敗並以垃圾值配置陣列 → OutOfMemoryException → ARCHIVE FAILED。
+          #       實測 .cctor 查詢 stdin(fd 0),故 fd 0 必須是 TTY。
+          #   (2) 前版 pty.spawn 以阻塞式 os.write 排 PTY 輸出至 stdout,但 xcodebuild 不即時
+          #       讀取該 pipe → os.write 阻塞 → PTY 緩衝填滿 → il2cpp 阻塞 → 6 小時死結。
+          # 解法:il2cpp_pty_wrapper.py 把 fd 0/1/2 全接同一 PTY slave(24×80,修正 (1));
+          #       真實 stdout 設非阻塞並內部緩衝,持續讀 master 釋放 PTY(修正 (2))。
+          #       附 15 分鐘無輸出看門狗防 hang 回歸。
           #
           # 注意:tarball 在 Windows 建立,不保留 Unix 執行位元,故需 chmod +x。
           for arch in deploy_arm64 deploy_x86_64; do
