@@ -340,7 +340,7 @@ jobs:
         run: chmod +x codebase/scripts/*.sh
 
       - name: 設定 Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: 暫存網站
         run: |
