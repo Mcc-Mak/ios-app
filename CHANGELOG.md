@@ -55,6 +55,11 @@
   - `deploy:docs` 加入 `needs: build`,確保 `workflow_dispatch` 時 deploy 在 build 完成後才執行(重新產生 apps.json);push 時 build 被跳過,deploy 仍正常執行。
   - `test:sast` 維持停用(待 Unity 授權續期 + 設定 CI secret 後以 GameCI 重建)。
 
+### 修正(建置/CI — IL2CPP hang 與 runner 版本)
+- **`build:ipa` job 的 IL2CPP 6 小時 hang 已修正。** 前版以 Python `pty.spawn` 包裹 Tuanjie 的 `il2cpp`(.NET 應用程式)以迴避 `System.ConsolePal` 崩潰,但 `pty.spawn` 把子行程 **stdin** 也接成 PTY,且以「無逾時」`select` 監看;CI 中無 stdin 輸入,`il2cpp` 讀 stdin 永久阻塞 → PTY master 永不可讀 → `select` 永不回返 → job hang 到 6 小時上限(實測 run `44498856814`:GameAssembly 建置階段 09:44 起零輸出 6 小時,取消時遺留 orphan Python 行程)。新 wrapper `il2cpp_pty_wrapper.py` 改為手動 `fork`:stdout/stderr = PTY slave(讓 `TIOCGWINSZ` 成功,回傳 24×80,修正崩潰),stdin = `/dev/null`(讀取立即 EOF,修正 hang),父行程阻塞式排空 master。舊 `il2cpp_pty_wrapper.sh` 已刪除。
+- **CI runner 由 `macos-latest`(Xcode 26.6)改為 `macos-15` + Xcode `16.2`。** Xcode 26.x 與 Tuanjie 2022.3 匯出之 Xcode 專案相容性不佳;Xcode 16.2 為 Unity 2022.3 LTS 同期版本,相容性最佳。`maxim-lobanov/setup-xcode` 改釘 `xcode-version: '16.2'`。
+- **`cicd.yml` 之「修補 IL2CPP」步驟** 改 copy `il2cpp_pty_wrapper.py`,並更新註解說明「崩潰 + hang」雙重修正。
+
 ### 新增(建置腳本)
 - **`codebase/scripts/build_unity_ipa.sh`** — 完整 iOS 建置管線腳本,支援三種模式:
   - 預設(全管線):`fetch_chunks` + Unity 匯出 + `xcodebuild` + 打包(需 macOS)

@@ -164,15 +164,15 @@ jobs:
   build:
     name: 'build:ipa'
     if: github.event_name == 'workflow_dispatch'
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
       contents: write   # 上傳 .ipa / dSYM / manifest.json 至 release
     env:
       # IL2CPP 為 .NET 應用程式;在無 TTY 的 CI 環境下,ConsolePal 初始化會崩潰
       # (OutOfMemoryException: Array dimensions exceeded supported range —
-      # .NET 6 在 macOS 14+ 管道環境的已知問題)。
-      # TERM/COLUMNS/LINES 提供終端尺寸 fallback;build_unity_ipa.sh 另以
-      # script 指令提供 pseudo-TTY 徹底解決。
+      # .NET 6 在 macOS 管道環境的已知問題)。
+      # TERM/COLUMNS/LINES 為 fallback;真正的修正是下方「修補 IL2CPP」步驟安裝的
+      # il2cpp_pty_wrapper.py(PTY stdout/stderr + /dev/null stdin)。
       TERM: dumb
       COLUMNS: '80'
       LINES: '24'
@@ -183,7 +183,7 @@ jobs:
       - name: 選擇 Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: '16.2'
 
       - name: 設定腳本為可執行
         run: chmod +x codebase/scripts/*.sh
@@ -211,15 +211,16 @@ jobs:
           echo "解壓完成。.xcodeproj:"
           find build/ios-xcode -maxdepth 1 -name "*.xcodeproj"
 
-      - name: 修補 IL2CPP(pseudo-TTY wrapper,修正 .NET ConsolePal 崩潰)
+      - name: 修補 IL2CPP(PTY wrapper:修正 ConsolePal 崩潰 + stdin hang)
         run: |
           set -euo pipefail
-          # Tuanjie 2022.3 的 IL2CPP 為 .NET 應用程式,在無 TTY 的 CI 管道環境下,
-          # System.ConsolePal 靜態建構式崩潰(OutOfMemoryException:
-          # Array dimensions exceeded supported range)。原因:.NET 嘗試
-          # ioctl(TIOCGWINSZ) 查詢終端尺寸,在管道環境下失敗並使用垃圾值配置陣列。
-          # macOS BSD script(1) 雖提供 PTY 但不保證有效視窗尺寸(可能 0x0),
-          # 改用 Python pty.spawn + 顯式 ioctl(TIOCSWINSZ) 設定 24x80。
+          # Tuanjie 2022.3 的 il2cpp 為 .NET 應用程式。在無 TTY 的 CI 管道環境下:
+          #   (1) ConsolePal 靜態建構式呼叫 ioctl(TIOCGWINSZ) 查詢終端尺寸,在 pipe
+          #       上失敗並使用垃圾值配置陣列 → OutOfMemoryException → ARCHIVE FAILED。
+          #   (2) 前版以 pty.spawn 包裹雖修正 (1),但 pty.spawn 把子行程 stdin 也接成
+          #       PTY,il2cpp 讀 stdin 永久阻塞 → job hang 到 6 小時上限。
+          # 解法:il2cpp_pty_wrapper.py 給 stdout/stderr 一個 PTY(讓 ioctl 成功,回傳
+          #       24x80),stdin 給 /dev/null(讀取立即 EOF,不阻塞)。
           #
           # 注意:tarball 在 Windows 建立,不保留 Unix 執行位元,故需 chmod +x。
           for arch in deploy_arm64 deploy_x86_64; do
@@ -227,9 +228,9 @@ jobs:
             if [[ -f "$il2cpp_dir/il2cpp" && ! -f "$il2cpp_dir/il2cpp.real" ]]; then
               mv "$il2cpp_dir/il2cpp" "$il2cpp_dir/il2cpp.real"
               chmod +x "$il2cpp_dir/il2cpp.real"
-              cp codebase/scripts/il2cpp_pty_wrapper.sh "$il2cpp_dir/il2cpp"
+              cp codebase/scripts/il2cpp_pty_wrapper.py "$il2cpp_dir/il2cpp"
               chmod +x "$il2cpp_dir/il2cpp"
-              echo "✅ 已以 Python PTY wrapper(24x80 視窗尺寸)包裹 $arch/il2cpp"
+              echo "✅ 已安裝 PTY wrapper(stdout/stderr=PTY 24x80, stdin=/dev/null)於 $arch/il2cpp"
             fi
           done
 
