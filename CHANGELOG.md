@@ -25,6 +25,14 @@
   - `--lod` 預設由 `root` 改為 `l16`(與既有文件/推薦一致),新增 `_lod_type` 型別校驗接受 `root` 或 `lNN`。
 - **輸出大小調整指引(模組 docstring + converter README)。** 輸出大小主要由 LOD + 紋理像素控制:預設 `l16 + 512px` ≈ 20 MB/圖幅;高解析食譜 `--lod l17/l18 --max-texture-px 1024+`。單塊/總和預算僅為上限,不會無故放大輸出。
 
+### 新增(多圖幅合併 + 起始位置 + 控制修正)
+- **4 圖幅合併為單一分塊集。** 11-NW-15A/B/C/D 的 L18 分塊(共 80 塊,522 MB,6.2M 三角面)合併為單一 `manifest.json` + `.glb` 集,座標統一相對於 15A 原點。新 `merge_tiles.py` 腳本:讀取各圖幅 manifest、計算偏移量、重新命名(前綴圖幅代號)、合併 centroid/bbox。
+- **起始位置 = WGS84 [22.3319, 114.1871](九龍城區)。** 破解 CSDI 座標系:manifest 的 EPSG:2326 座標實為 HK1980 Grid 減 800000(本地慣例)。目標經緯度 → EPSG:2326 E=837322, N=821424 → manifest 空間 E=37322, N=21424 → 合併世界座標 (947, 124)(相對 15A 原點)。`TouchPlayerController.startPosition` 預設此值。
+- **攝影機起始俯角 25°。** 先前 pitch=0(水平看天空)→ 藍屏。現 pitch=25°(向下看城市),起始即可見建物。
+- **搖桿固定於左下角。** 先前搖桿出現於觸控點(左半屏任意位置)。現固定於 (joystickMarginX=160, joystickMarginY=160) 左下角,持續顯示。
+- **pan/tilt 非反轉。** 先前 `_pitch -= delta.y`(上拖=下看,反轉)。現 `_pitch += -delta.y`(上拖=上看,標準 FPS)。
+- **串流半徑擴大。** `loadRadius` 350→600m,`unloadRadius` 500→800m,以覆蓋合併 4 圖幅(~1500×1200m)並載入相鄰圖幅。
+
 ### 新增(玩家控制 — 觸控 PTZ + FPS 移動)
 - **`TouchPlayerController.cs`** — 第一人稱玩家控制器,取代 `FlyCameraController`(WASD/滑鼠,在 iPhone 無輸入 → 藍屏)。自動偵測平台:
   - **行動(觸控):** 左半屏浮動搖桿(觸控點出現,拖曳移動,放開消失)+ 右半屏單指拖曳 pan/tilt + 雙指捏合 zoom(FOV 25°–90°)。

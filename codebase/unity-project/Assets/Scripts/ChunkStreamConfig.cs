@@ -18,11 +18,11 @@ namespace HKGrid.Streaming
         public string manifestFileName = "manifest.json";
 
         [Header("空間串流半徑(公尺,本地座標)")]
-        [Tooltip("攝影機在此半徑內的分塊會被載入")]
-        public float loadRadius = 350f;
+        [Tooltip("攝影機在此半徑內的分塊會被載入。合併 4 圖幅(~1500×1200m)需要較大半徑以載入相鄰圖幅")]
+        public float loadRadius = 600f;
 
         [Tooltip("超過此半徑的已載入分塊會被卸載。應 > loadRadius 以避免邊界抖動")]
-        public float unloadRadius = 500f;
+        public float unloadRadius = 800f;
 
         [Tooltip("每幀最多新增載入的分塊數(避免一次載入太多造成卡頓)")]
         public int maxLoadsPerFrame = 1;

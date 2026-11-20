@@ -231,7 +231,7 @@ GameObject:
   - component: {fileID: 2101336113}
   - component: {fileID: 2101336112}
   - component: {fileID: 2101336111}
-  - component: {fileID: 2101336110}
+  - component: {fileID: 2101336114}
   m_Layer: 0
   m_HasEditorInfo: 1
   m_Name: Main Camera
@@ -240,22 +240,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &2101336110
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2101336109}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 58086f999e484914a8295d75ed404a7f, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  moveSpeed: 60
-  fastMoveMultiplier: 3
-  lookSpeed: 2
-  damping: 10
 --- !u!114 &2101336111
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -340,6 +324,38 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2101336114
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2101336109}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe4202bb75130354aa2c1f0af51ef802, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  moveSpeed: 5
+  sprintMultiplier: 2
+  lookSensitivityTouch: 0.2
+  lookSensitivityMouse: 2
+  minPitch: -85
+  maxPitch: 85
+  defaultFov: 60
+  minFov: 25
+  maxFov: 90
+  zoomSpeedTouch: 0.08
+  zoomSpeedMouse: 15
+  eyeHeight: 1.7
+  groundRaycastHeight: 100
+  groundRaycastLength: 500
+  groundFollowLerp: 10
+  groundMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  joystickRadius: 120
+  joystickDeadzone: 0.1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

@@ -6,14 +6,15 @@
 // 控制方式:
 //   桌面(Editor/Standalone):WASD 移動 + 滑鼠右鍵拖曳視角 + 滾輪縮放(Shift 衝刺)。
 //   行動(觸控):
-//     - 左半屏觸控 → 浮動搖桿(觸控點出現,拖曳移動,放開消失)
-//     - 右半屏單指拖曳 → pan/tilt 視角
+//     - 左下角固定搖桿(拖曳移動,放開回中)
+//     - 右半屏單指拖曳 → pan/tilt 視角(非反轉:上拖=上看)
 //     - 雙指捏合 → zoom(FOV,捏合拉近=放大,拉開=縮小)
 //
 // 地面跟隨:每幀從攝影機上方向下射線,保持攝影機在地面 + eyeHeight 高度。
 // 需要分塊 MeshCollider(ChunkStreamer 載入時加入,見 addChunkColliders 設定)。
 //
-// 鷹架(scaffold):未經 Unity 編譯驗證。
+// 起始位置:startPosition 為合併世界座標(相對於全域原點 15A origin)。
+// 預設 (947, 124, 0) = WGS84 [22.3319, 114.1871](九龍城區)。
 
 using UnityEngine;
 using UnityEngine.UI;
@@ -26,6 +27,13 @@ namespace HKGrid.Streaming
     [RequireComponent(typeof(Camera))]
     public class TouchPlayerController : MonoBehaviour
     {
+        [Header("起始位置")]
+        [Tooltip("起始位置(合併世界座標,相對全域原點)。預設 = WGS84 [22.3319, 114.1871] 九龍城區")]
+        public Vector3 startPosition = new Vector3(947f, 0f, 124f);
+        [Tooltip("起始水平視角(Yaw,度)。0=+Z/南,90=+X/東")]
+        public float startYaw = 0f;
+        [Tooltip("起始俯角(Pitch,度)。正值=向下看,看到地面/城市")]
+        public float startPitch = 25f;
         [Header("移動")]
         [Tooltip("步行速度(m/s)")]
         public float moveSpeed = 5f;
@@ -33,7 +41,7 @@ namespace HKGrid.Streaming
         public float sprintMultiplier = 2f;
 
         [Header("視角(pan/tilt)")]
-        public float lookSensitivityTouch = 0.2f;
+        public float lookSensitivityTouch = 0.4f;
         public float lookSensitivityMouse = 2f;
         public float minPitch = -85f;
         public float maxPitch = 85f;
@@ -62,6 +70,10 @@ namespace HKGrid.Streaming
         public float joystickRadius = 120f;
         [Tooltip("搖桿死區(低於此值視為無輸入)")]
         public float joystickDeadzone = 0.1f;
+        [Tooltip("搖桿固定位置:距左邊緣像素")]
+        public float joystickMarginX = 160f;
+        [Tooltip("搖桿固定位置:距下邊緣像素")]
+        public float joystickMarginY = 160f;
 
         // ── 內部狀態 ──
         private Camera _cam;
@@ -92,9 +104,10 @@ namespace HKGrid.Streaming
             _isMobile = Application.isMobilePlatform || Input.touchSupported;
             _cam.fieldOfView = defaultFov;
 
-            // FPS 起始視角:水平(yaw 0 = 沿世界 +Z / HK 網格南方),pitch 0
-            _yaw = 0f;
-            _pitch = 0f;
+            // 起始位置(合併世界座標)與視角(俯視城市,非水平看天空)
+            _yaw = startYaw;
+            _pitch = startPitch;
+            transform.position = startPosition;
 
             // 若舊版 FlyCameraController 仍在攝影機上,停用之
             var fly = GetComponent<FlyCameraController>();
@@ -123,7 +136,7 @@ namespace HKGrid.Streaming
 
         private void HandleDesktopInput()
         {
-            // 視角:滑鼠右鍵拖曳
+            // 視角:滑鼠右鍵拖曳(非反轉:上拖=上看)
             if (Input.GetMouseButton(1))
             {
                 _yaw += Input.GetAxis("Mouse X") * lookSensitivityMouse;
@@ -165,8 +178,10 @@ namespace HKGrid.Streaming
                         if (t.position.x < Screen.width * 0.5f && _moveFingerId == -1)
                         {
                             _moveFingerId = t.fingerId;
-                            _joystickCenter = t.position;
-                            ShowJoystick(t.position);
+                            // 搖桿固定在左下角(joystickMarginX, joystickMarginY from bottom-left)
+                            _joystickCenter = new Vector2(joystickMarginX, joystickMarginY);
+                            ShowJoystick(_joystickCenter);
+                            UpdateJoystick(t.position);
                         }
                         else if (t.position.x >= Screen.width * 0.5f && _lookFingerId == -1)
                         {
@@ -223,7 +238,10 @@ namespace HKGrid.Streaming
             Vector2 delta = touchPos - _lastLookPos;
             _lastLookPos = touchPos;
             _yaw += delta.x * lookSensitivityTouch;
-            _pitch -= delta.y * lookSensitivityTouch;
+            // 非反轉:手指上拖(delta.y<0)= 抬頭看上方(pitch 增加)
+            // 但 touch 座標 Y 向下增長,所以 pitch += (-delta.y) * sens
+            // 標準 FPS:上拖=上看。delta.y 為負(向上)= pitch 應增加。
+            _pitch += -delta.y * lookSensitivityTouch;
             _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
         }
 
@@ -341,21 +359,31 @@ namespace HKGrid.Streaming
             _joystickThumbImg.rectTransform.sizeDelta = Vector2.one * joystickRadius * 0.7f;
             _joystickThumbImg.raycastTarget = false;
 
-            HideJoystick();
+            // 搖桿固定在左下角,持續顯示
+            PositionJoystickAtBottomLeft();
+            _joystickBaseImg.gameObject.SetActive(true);
+        }
+
+        private void PositionJoystickAtBottomLeft()
+        {
+            //螢幕座標:(joystickMarginX, joystickMarginY) from bottom-left
+            _joystickBaseImg.transform.position = new Vector3(joystickMarginX, joystickMarginY, 0f);
+            _joystickThumbImg.rectTransform.localPosition = Vector3.zero;
         }
 
         private void ShowJoystick(Vector2 screenPos)
         {
             if (_joystickBaseImg == null) return;
             _joystickBaseImg.gameObject.SetActive(true);
-            _joystickBaseImg.transform.position = screenPos;
+            _joystickBaseImg.transform.position = new Vector3(joystickMarginX, joystickMarginY, 0f);
             _joystickThumbImg.rectTransform.localPosition = Vector3.zero;
         }
 
         private void HideJoystick()
         {
-            if (_joystickBaseImg != null)
-                _joystickBaseImg.gameObject.SetActive(false);
+            // 搖桿保持顯示(固定位置),拇指回中
+            if (_joystickThumbImg != null)
+                _joystickThumbImg.rectTransform.localPosition = Vector3.zero;
         }
 
         private void UpdateJoystick(Vector2 touchPos)
