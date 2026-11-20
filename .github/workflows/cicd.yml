@@ -172,7 +172,7 @@ jobs:
       # (OutOfMemoryException: Array dimensions exceeded supported range —
       # .NET 6 在 macOS 管道環境的已知問題)。
       # TERM/COLUMNS/LINES 為 fallback;真正的修正是下方「修補 IL2CPP」步驟安裝的
-      # il2cpp_pty_wrapper.py(fd 0/1/2 全接 PTY + 非阻塞輸出排空)。
+      # il2cpp_pty_wrapper.sh(/bin/sh 外殼 + 內嵌 python3:fd 0/1/2 全接 PTY + 非阻塞輸出排空)。
       TERM: dumb
       COLUMNS: '80'
       LINES: '24'
@@ -211,7 +211,7 @@ jobs:
           echo "解壓完成。.xcodeproj:"
           find build/ios-xcode -maxdepth 1 -name "*.xcodeproj"
 
-      - name: 修補 IL2CPP(PTY wrapper:修正 ConsolePal 崩潰 + stdin hang)
+      - name: 修補 IL2CPP(PTY wrapper:修正 ConsolePal 崩潰 + 輸出死結 hang)
         run: |
           set -euo pipefail
           # Tuanjie 2022.3 的 il2cpp 為 .NET 應用程式。在無 TTY 的 CI 管道環境下有兩個問題:
@@ -220,9 +220,9 @@ jobs:
           #       實測 .cctor 查詢 stdin(fd 0),故 fd 0 必須是 TTY。
           #   (2) 前版 pty.spawn 以阻塞式 os.write 排 PTY 輸出至 stdout,但 xcodebuild 不即時
           #       讀取該 pipe → os.write 阻塞 → PTY 緩衝填滿 → il2cpp 阻塞 → 6 小時死結。
-          # 解法:il2cpp_pty_wrapper.py 把 fd 0/1/2 全接同一 PTY slave(24×80,修正 (1));
-          #       真實 stdout 設非阻塞並內部緩衝,持續讀 master 釋放 PTY(修正 (2))。
-          #       附 15 分鐘無輸出看門狗防 hang 回歸。
+          # 解法:il2cpp_pty_wrapper.sh(/bin/sh 外殼 + 內嵌 python3,確保被建置階段 exec)
+          #       把 fd 0/1/2 全接同一 PTY slave(24×80,修正 (1));真實 stdout 設非阻塞並內部
+          #       緩衝,持續讀 master 釋放 PTY(修正 (2));附 15 分鐘無輸出看門狗防 hang 回歸。
           #
           # 注意:tarball 在 Windows 建立,不保留 Unix 執行位元,故需 chmod +x。
           for arch in deploy_arm64 deploy_x86_64; do
@@ -230,9 +230,9 @@ jobs:
             if [[ -f "$il2cpp_dir/il2cpp" && ! -f "$il2cpp_dir/il2cpp.real" ]]; then
               mv "$il2cpp_dir/il2cpp" "$il2cpp_dir/il2cpp.real"
               chmod +x "$il2cpp_dir/il2cpp.real"
-              cp codebase/scripts/il2cpp_pty_wrapper.py "$il2cpp_dir/il2cpp"
+              cp codebase/scripts/il2cpp_pty_wrapper.sh "$il2cpp_dir/il2cpp"
               chmod +x "$il2cpp_dir/il2cpp"
-              echo "✅ 已安裝 PTY wrapper(stdout/stderr=PTY 24x80, stdin=/dev/null)於 $arch/il2cpp"
+              echo "✅ 已安裝 PTY wrapper(fd 0/1/2=PTY 24x80 + 非阻塞排空)於 $arch/il2cpp"
             fi
           done
 

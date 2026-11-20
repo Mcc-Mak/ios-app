@@ -59,9 +59,9 @@
 - **`build:ipa` job 的 IL2CPP 崩潰與 hang 已一併修正。** 兩個獨立根因:
   - **崩潰(`System.ConsolePal` OOM → ARCHIVE FAILED):** Tuanjie 的 `il2cpp` 為 .NET 應用程式,`ConsolePal..cctor` 以 `ioctl(TIOCGWINSZ)` 查詢終端尺寸,在 pipe(非 TTY)上失敗並以垃圾值配置陣列 → `OutOfMemoryException`。實測 `.cctor` 查詢的是 **stdin(fd 0)**,故 fd 0 必須是 TTY(僅把 stdout/stderr 接 PTY 仍崩潰,run `44651844689` 驗證)。
   - **hang(6 小時,run `44498856814`):** 前版 `pty.spawn` 以「阻塞式」`os.write` 排 PTY 輸出至真實 stdout,但 xcodebuild 會緩衝建置階段輸出、不即時讀取該 pipe → `os.write` 阻塞 → `pty.spawn` 停止讀 master → PTY 緩衝(64KB)填滿 → `il2cpp` 阻塞於寫入 → 死結 6 小時(取消時遺留 orphan Python 行程,且 09:44 起零輸出)。
-  - **解法:** 新 wrapper `il2cpp_pty_wrapper.py` 改手動 `fork`:fd 0/1/2 全接同一 PTY slave(24×80,讓 `.cctor` 的 `TIOCGWINSZ` 成功——修正崩潰);真實 stdout 設為**非阻塞**,內部 `pending` 緩衝,持續讀 master(釋放 PTY 緩衝,`il2cpp` 永不阻塞——修正 hang),待 stdout 可寫再排空;附 15 分鐘無輸出看門狗(強殺 + 退出碼 124)防 hang 回歸。舊 `il2cpp_pty_wrapper.sh` 已刪除。
+  - **解法:** 新 wrapper `il2cpp_pty_wrapper.sh` 採 `/bin/sh` 外殼 + 內嵌 python3(heredoc),確保被建置階段以 exec 呼叫時核心恆接受(先前純 `.py` + `#!/usr/bin/env python3` shebang 未被實際執行,il2cpp.real 以 pipe fd 直行而崩潰,run `44653433207` 驗證)。內嵌 python 手動 `fork`:fd 0/1/2 全接同一 PTY slave(24×80 + controlling terminal,讓 `.cctor` 的 `TIOCGWINSZ` 成功——修正崩潰);真實 stdout 設為**非阻塞**,內部 `pending` 緩衝,持續讀 master(釋放 PTY 緩衝,`il2cpp` 永不阻塞——修正 hang),待 stdout 可寫再排空;附 15 分鐘無輸出看門狗(強殺 + 退出碼 124)防 hang 回歸。
 - **CI runner 由 `macos-latest`(Xcode 26.6)改為 `macos-15` + Xcode `16.2`。** Xcode 26.x 與 Tuanjie 2022.3 匯出之 Xcode 專案相容性不佳;Xcode 16.2 為 Unity 2022.3 LTS 同期版本,相容性最佳(已驗證 setup-xcode 於 macos-15 成功選取 16.2)。`maxim-lobanov/setup-xcode` 改釘 `xcode-version: '16.2'`。
-- **`cicd.yml` 之「修補 IL2CPP」步驟** 改 copy `il2cpp_pty_wrapper.py`,並更新註解說明「崩潰 + hang」雙重修正。
+- **`cicd.yml` 之「修補 IL2CPP」步驟** copy `il2cpp_pty_wrapper.sh`,並更新註解說明「崩潰 + hang」雙重修正。
 
 ### 新增(建置腳本)
 - **`codebase/scripts/build_unity_ipa.sh`** — 完整 iOS 建置管線腳本,支援三種模式:

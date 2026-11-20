@@ -1,49 +1,34 @@
-#!/usr/bin/env python3
-# il2cpp_pty_wrapper.py — PTY wrapper for Tuanjie 的 il2cpp(.NET 應用程式)
+#!/bin/sh
+# il2cpp_pty_wrapper.sh — 以 PTY 包裹 Tuanjie 的 il2cpp(.NET),修正崩潰與 hang
 #
-# 同時修正兩個問題:
+# 採 /bin/sh 外殼 + 內嵌 python3(以 heredoc 透過 stdin 餵程式碼,無引號跳脫問題)。
+# 之所以用 .sh 外殼而非 .py shebang:建置階段(Run Script phase)以 exec 呼叫本檔,
+# #!/bin/sh 恆為核心所接受;先前 .py(#!/usr/bin/env python3)版本未被實際執行,
+# 導致 il2cpp.real 直接以 pipe fd 執行而 ConsolePal 崩潰。
 #
-# (1) ConsolePal 崩潰(ARCHIVE FAILED):
-#     Tuanjie 的 il2cpp 為 .NET 應用程式。在無 TTY 的 CI 管道下,System.ConsolePal
-#     靜態建構式(.cctor)以 ioctl(TIOCGWINSZ) 查詢終端尺寸;在 pipe(非 TTY)上
-#     失敗,改用未初始化的垃圾值配置陣列 → OutOfMemoryException:
-#     Array dimensions exceeded supported range。實測 .cctor 查詢的是 stdin(fd 0),
-#     故 fd 0 必須是 TTY(僅把 stdout/stderr 接 PTY 仍會崩潰)。
-#     解法:fd 0/1/2 全部接同一個 PTY slave(24×80),讓 ioctl 成功。
-#
-# (2) 輸出死結 hang(前版 pty.spawn 的 6 小時 hang,run 44498856814):
-#     pty.spawn 以「阻塞式」os.write 將 PTY 輸出排至真實 stdout。xcodebuild 會緩衝
-#     建置階段(Run Script phase)的輸出、不即時讀取該 pipe → os.write 阻塞 →
-#     pty.spawn 停止讀 master → PTY 緩衝(64KB)填滿 → il2cpp 阻塞於寫入 → 死結
-#     6 小時。此外 pty.spawn 把子行程 stdin 也接 PTY,且 select 無逾時,進一步加劇
-#     阻塞風險。
-#     解法:真實 stdout 設為「非阻塞」,內部以 pending 緩衝;持續讀 master(釋放 PTY
-#     緩衝,il2cpp 永不阻塞於寫入),待 stdout 可寫再排空 pending。
-#
-# 額外保險:15 分鐘無輸出看門狗 —— 若 il2cpp 真的卡住(理論上不應發生),強殺並以
-# 退出碼 124 結束,避免再次 hang 到 6 小時上限。
+# 修正兩個問題:
+#   (1) ConsolePal 崩潰:.NET ConsolePal..cctor 以 ioctl(TIOCGWINSZ) 查詢 stdin
+#       (fd 0) 尺寸,在非 TTY 上失敗並以垃圾值配置陣列 → OOM。解法:fd 0/1/2 全接
+#       PTY slave(24×80),並以 pty.fork 之方式取得 controlling terminal。
+#   (2) 6 小時 hang(前版 pty.spawn):pty.spawn 以阻塞式 os.write 排 PTY 輸出至
+#       stdout,但 xcodebuild 不即時讀取該 pipe → os.write 阻塞 → PTY 緩衝填滿 →
+#       il2cpp 阻塞 → 死結。解法:stdout 設非阻塞,內部 pending 緩衝,持續讀 master
+#       釋放 PTY;附 15 分鐘無輸出看門狗防回歸。
 #
 # 安裝(CI build:ipa job):
 #   mv il2cpp il2cpp.real && chmod +x il2cpp.real
-#   cp il2cpp_pty_wrapper.py il2cpp && chmod +x il2cpp
+#   cp il2cpp_pty_wrapper.sh il2cpp && chmod +x il2cpp
 #
-# 呼叫鏈:建置階段腳本 → il2cpp(本 wrapper)→ fork → il2cpp.real <原始參數>
+# 呼叫鏈:建置階段腳本 → il2cpp(本 wrapper)→ python3 → fork → il2cpp.real <原始參數>
+DIR="$(dirname "$0")"
+exec python3 - "$DIR/il2cpp.real" "$@" <<'PYEOF'
+import os, pty, fcntl, termios, struct, sys, select, errno, signal, time
 
-import os
-import pty
-import fcntl
-import termios
-import struct
-import sys
-import select
-import errno
-import signal
-import time
+real = sys.argv[1]
+real_args = sys.argv[1:]
 
-# 找出真實 il2cpp 二進位檔(與本 wrapper 同目錄的 il2cpp.real)
-script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-real = os.path.join(script_dir, "il2cpp.real")
-real_args = [real] + sys.argv[1:]
+sys.stderr.write("IL2CPP_WRAPPER start pid=%d real=%s argv=%r\n" % (os.getpid(), real, sys.argv[2:]))
+sys.stderr.flush()
 
 # 單一 PTY 供 stdin/stdout/stderr 共用(ConsolePal..cctor 查詢 fd 0,故 fd 0 須為 TTY)
 master, slave = pty.openpty()
@@ -53,17 +38,29 @@ pid = os.fork()
 if pid == 0:
     # ── 子行程(il2cpp.real)──
     try:
-        os.setsid()  # 脫離任何控制終端(避免關閉 master 時收到 SIGHUP)
+        os.setsid()
     except OSError:
         pass
+    # 取得 PTY 為 controlling terminal(比照 pty.fork;某些 .NET 路徑較穩)
+    try:
+        os.close(os.open(os.ttyname(slave), os.O_RDWR))
+    except OSError:
+        pass
+    sys.stderr.write("IL2CPP_WRAPPER child pid=%d slave=%d pre-dup2 isatty=%r -> execv\n"
+                     % (os.getpid(), slave, [os.isatty(i) for i in (0, 1, 2)]))
+    sys.stderr.flush()
     os.dup2(slave, 0)  # stdin  = PTY(ConsolePal..cctor 的 TIOCGWINSZ 在此成功)
     os.dup2(slave, 1)  # stdout = PTY
     os.dup2(slave, 2)  # stderr = PTY
-    for fd in (slave, master):
+    if slave > 2:
         try:
-            os.close(fd)
+            os.close(slave)
         except OSError:
             pass
+    try:
+        os.close(master)
+    except OSError:
+        pass
     os.execv(real, real_args)
     os._exit(127)
 
@@ -77,12 +74,11 @@ pending = bytearray()
 exit_code = 1
 reaped = False
 last_output = time.monotonic()
-WATCHDOG_S = 900        # 15 分鐘無輸出 → 判定卡住(il2cpp 正常數分鐘完成)
-MAX_PENDING = 64 << 20  # 64 MB 上限,避免 stdout 失聯時 pending 無限增長
+WATCHDOG_S = 900         # 15 分鐘無輸出 → 判定卡住(il2cpp 正常數分鐘完成)
+MAX_PENDING = 64 << 20   # 64 MB 上限,避免 stdout 失聯時 pending 無限增長
 
 
 def reap_child(blocking):
-    """收回子行程;若已結束,設定 exit_code 並回傳 True。"""
     global exit_code, reaped
     if reaped:
         return True
@@ -101,8 +97,7 @@ def reap_child(blocking):
     return False
 
 
-def flush_pending_blocking():
-    """結束前以阻塞方式排空 pending(子行程已結束,pipe 即將被消費端讀取)。"""
+def flush_blocking():
     try:
         fcntl.fcntl(STDOUT, fcntl.F_SETFL, orig_fl)
     except OSError:
@@ -126,8 +121,8 @@ while True:
     if master in r:
         try:
             data = os.read(master, 65536)
-        except OSError as e:
-            break  # EIO(macOS:slave 關閉)→ 視為 EOF
+        except OSError:
+            break  # EIO(macOS:slave 關閉)→ EOF
         if not data:
             break  # EOF
         pending += data
@@ -143,7 +138,7 @@ while True:
             if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
                 pending.clear()  # stdout 已壞,丟棄避免無限增長
 
-    if reap_child(blocking=False):
+    if reap_child(False):
         # 子行程已結束:排空 PTY 殘留後離開
         try:
             while True:
@@ -153,28 +148,24 @@ while True:
                 pending += data
         except OSError:
             pass
-        flush_pending_blocking()
+        flush_blocking()
         break
 
     # 看門狗:長時間無輸出 → 判定卡住,強殺以避免 6h hang
     if (time.monotonic() - last_output) > WATCHDOG_S:
-        sys.stderr.write(
-            "il2cpp_pty_wrapper: 達 %d 秒無輸出,判定 il2cpp 卡住,送 SIGKILL\n"
-            % WATCHDOG_S
-        )
+        sys.stderr.write("IL2CPP_WRAPPER: %ds 無輸出,判定 il2cpp 卡住,送 SIGKILL\n" % WATCHDOG_S)
         sys.stderr.flush()
         try:
             os.kill(pid, signal.SIGKILL)
         except OSError:
             pass
-        reap_child(blocking=True)
+        reap_child(True)
         exit_code = 124
         break
 
-# 若因 EOF/select 例外而離開迴圈但子行程尚未收回,阻塞收回之
 if not reaped:
-    reap_child(blocking=True)
-flush_pending_blocking()
+    reap_child(True)
+flush_blocking()
 
 try:
     os.close(master)
@@ -182,3 +173,4 @@ except OSError:
     pass
 
 sys.exit(exit_code)
+PYEOF
