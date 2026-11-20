@@ -1,30 +1,23 @@
 #!/bin/sh
-# il2cpp_pty_wrapper.sh — 以 PTY 包裹 Tuanjie 的 il2cpp(.NET),修正崩潰與 hang
+# il2cpp_pty_wrapper.sh — 以 PTY + 環境變數修正包裹 Tuanjie 的 il2cpp(.NET)
 #
 # 採 /bin/sh 外殼 + 內嵌 python3(heredoc)。建置階段(Run Script phase)以 exec 呼叫
-# 本檔,核心恆接受 #!/bin/sh;先前純 .py(#!/usr/bin/env python3)未被實際執行,
-# 導致 il2cpp.real 直接以 pipe fd 執行而 ConsolePal 崩潰(run 44653433207 驗證)。
+# 本檔,核心恆接受 #!/bin/sh;先前純 .py(#!/usr/bin/env python3)未被實際執行(run
+# 44653433207 驗證)。
 #
-# 修正兩個問題:
-#   (1) ConsolePal 崩潰(ARCHIVE FAILED):
-#       Tuanjie 的 il2cpp 為 .NET 應用程式。ConsolePal..cctor 以 ioctl(TIOCGWINSZ)
-#       查詢 stdin(fd 0) 尺寸;在 pipe(非 TTY)上失敗,改用垃圾值配置陣列 →
-#       OutOfMemoryException。實測 fd 0 必須是「真正的 controlling terminal」,僅
-#       dup2 PTY slave 而未設 controlling terminal 仍會崩潰(run 44654998542 驗證)。
-#       解法:pty.fork()(底層 os.forkpty() 核心呼叫,做 openpty + fork + login_tty,
-#             login_tty 做 setsid + TIOCSCTTY + dup2)——與 pty.spawn 完全相同的子行程
-#             設定,經實證可防崩潰。手動 fork+dup2+setsid 不設 TIOCSCTTY,故失敗。
-#   (2) 6 小時 hang(前版 pty.spawn,run 44498856814):
-#       pty._copy 在 stdout 緩衝達 4096 bytes 時停止讀取 master → PTY 緩衝填滿 →
-#       il2cpp 阻塞於寫入 → 死結。解法:父行程「持續」讀 master(無 high-water),
-#       內部 pending 緩衝(上限 64MB),stdout 設非阻塞,可寫時才排空;附 15 分鐘
-#       無輸出看門狗防回歸。
+# 問題演進與診斷:
+#   - 原始崩潰(run 44498190149,無 wrapper):ConsolePal..cctor OOM。
+#   - pty.spawn wrapper(run 44498856814):6h hang(實為 _copy 輸出死結,崩潰被遮蔽)。
+#   - pty.fork + 非阻塞排空(run 44656281598):崩潰重新顯露——證明 PTY/controlling
+#     terminal 並非崩潰根因。ConsolePal..cctor 在標準 .NET 6 僅配置 int[16] + string[2,16],
+#     不可能 OOM。故 Tuanjie 的 il2cpp 使用修改版 .NET,cctor 可能隨 TERM 載入 terminfo。
+#   - 本版同時:(a) 以 pty.fork 提供 PTY(以防 TIOCGWINSZ 相關路徑);(b) 移除 TERM 環境
+#     變數(讓 .NET 跳過 terminfo 載入——主修正);(c) 非阻塞排空 + 看門狗(防 hang);
+#     (d) 診斷輸出至 fd 3(原始 stderr,驗證 PTY 狀態)。
 #
 # 安裝(CI build:ipa job):
 #   mv il2cpp il2cpp.real && chmod +x il2cpp.real
 #   cp il2cpp_pty_wrapper.sh il2cpp && chmod +x il2cpp
-#
-# 呼叫鏈:建置階段腳本 → il2cpp(本 wrapper)→ python3 → pty.fork → il2cpp.real <原始參數>
 DIR="$(dirname "$0")"
 exec python3 - "$DIR/il2cpp.real" "$@" <<'PYEOF'
 import os, pty, fcntl, termios, struct, sys, select, errno, signal, time
@@ -34,30 +27,49 @@ real_args = sys.argv[1:]
 
 WINSIZE = struct.pack("HHHH", 24, 80, 0, 0)
 
-sys.stderr.write("IL2CPP_WRAPPER start pid=%d real=%s argv=%r\n"
-                 % (os.getpid(), real, sys.argv[2:]))
-sys.stderr.flush()
+# 將原始 stderr 複製至 fd 3,供子行程寫診斷(pty.fork 後子行程 fd 0/1/2 為 PTY)
+diag_fd = os.dup(2)  # fd 3 = 原始 stderr(pipe → xcodebuild log)
 
-# pty.fork():底層呼叫 os.forkpty()(macOS 核心函式),做 openpty + fork + login_tty。
-# login_tty 在子行程執行 setsid + ioctl(TIOCSCTTY) 設定 controlling terminal + dup2
-# slave 至 0/1/2。這是 pty.spawn 的子行程設定,經實證可防 ConsolePal 崩潰。
-# 手動 fork+dup2+setsid 不設 TIOCSCTTY,故 fd 0 不足以讓 .NET 視為有效終端 → 崩潰。
+def diag(msg):
+    os.write(diag_fd, (msg + "\n").encode())
+
+diag("IL2CPP_WRAPPER start pid=%d real=%s" % (os.getpid(), real))
+diag("  TERM=%r NO_COLOR=%r" % (os.environ.get("TERM"), os.environ.get("NO_COLOR")))
+
+# pty.fork():底層 os.forkpty() 做 openpty + fork + login_tty(setsid + TIOCSCTTY + dup2)
 pid, master_fd = pty.fork()
 
 if pid == 0:
-    # ── 子行程(il2cpp.real)──
-    # pty.fork 已完成:setsid + TIOCSCTTY + dup2(slave, 0/1/2) + close(slave)。
-    # 設定視窗尺寸 24×80,讓 ConsolePal 的 TIOCGWINSZ 回傳有效值(非 0×0)。
+    # ── 子行程(il2cpp.real)── fd 0/1/2 = PTY slave,fd 3 = 原始 stderr(診斷)
+    diag("IL2CPP_WRAPPER child pid=%d" % os.getpid())
+    diag("  isatty(0)=%s isatty(1)=%s isatty(2)=%s" %
+         (os.isatty(0), os.isatty(1), os.isatty(2)))
+    # 測試 TIOCGWINSZ
+    try:
+        ws = fcntl.ioctl(0, termios.TIOCGWINSZ, b"\x00" * 8)
+        rows, cols, _, _ = struct.unpack("HHHH", ws)
+        diag("  TIOCGWINSZ(0): rows=%d cols=%d" % (rows, cols))
+    except OSError as e:
+        diag("  TIOCGWINSZ(0) FAILED: %s" % e)
+    # 設定視窗尺寸 24×80
     for fd in (0, 1, 2):
         try:
             fcntl.ioctl(fd, termios.TIOCSWINSZ, WINSIZE)
         except OSError:
             pass
+    # ★ 主修正:移除 TERM,讓 .NET ConsolePal..cctor 跳過 terminfo 載入
+    os.environ.pop("TERM", None)
+    os.environ["NO_COLOR"] = "1"
+    os.environ["DOTNET_SYSTEM_CONSOLE_ALLOW_ANSI_COLOR_REDIRECTION"] = "0"
+    diag("  env after: TERM=%r NO_COLOR=%r" %
+         (os.environ.get("TERM"), os.environ.get("NO_COLOR")))
+    diag("  -> execv %s" % real)
+    os.close(diag_fd)
     os.execv(real, real_args)
     os._exit(127)
 
 # ── 父行程:非阻塞排空 PTY master → 真實 stdout(取代 pty._copy)──
-# 設定視窗尺寸於 master(TIOCSWINSZ 在 master/slave 兩端皆可設;propagates)。
+os.close(diag_fd)
 try:
     fcntl.ioctl(master_fd, termios.TIOCSWINSZ, WINSIZE)
 except OSError:
@@ -71,8 +83,8 @@ pending = bytearray()
 exit_code = 1
 reaped = False
 last_output = time.monotonic()
-WATCHDOG_S = 900         # 15 分鐘無輸出 → 判定卡住(il2cpp 正常數分鐘完成)
-MAX_PENDING = 64 << 20   # 64 MB 上限,避免 stdout 失聯時 pending 無限增長
+WATCHDOG_S = 900
+MAX_PENDING = 64 << 20
 
 
 def reap_child(blocking):
@@ -115,30 +127,27 @@ while True:
     except (OSError, ValueError):
         break
 
-    # 持續讀 master(無 high-water)→ PTY 緩衝永不填滿 → il2cpp 永不阻塞(修正 hang)
     if master_fd in r:
         try:
             data = os.read(master_fd, 65536)
         except OSError:
-            break  # EIO(macOS:slave 關閉)→ EOF
+            break
         if not data:
-            break  # EOF
+            break
         pending += data
         if len(pending) > MAX_PENDING:
-            del pending[: len(pending) - MAX_PENDING]  # 丟棄最舊
+            del pending[: len(pending) - MAX_PENDING]
         last_output = time.monotonic()
 
-    # stdout 可寫時才排空 pending(stdout 非阻塞,不會死結)
     if STDOUT in w and pending:
         try:
             n = os.write(STDOUT, pending)
             del pending[:n]
         except OSError as e:
             if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
-                pending.clear()  # stdout 已壞,丟棄避免無限增長
+                pending.clear()
 
     if reap_child(False):
-        # 子行程已結束:排空 PTY 殘留後離開
         try:
             while True:
                 data = os.read(master_fd, 65536)
@@ -150,10 +159,8 @@ while True:
         flush_blocking()
         break
 
-    # 看門狗:長時間無輸出 → 判定卡住,強殺以避免 6h hang
     if (time.monotonic() - last_output) > WATCHDOG_S:
-        sys.stderr.write("IL2CPP_WRAPPER: %ds 無輸出,判定 il2cpp 卡住,送 SIGKILL\n"
-                         % WATCHDOG_S)
+        sys.stderr.write("IL2CPP_WRAPPER: %ds 無輸出,送 SIGKILL\n" % WATCHDOG_S)
         sys.stderr.flush()
         try:
             os.kill(pid, signal.SIGKILL)
