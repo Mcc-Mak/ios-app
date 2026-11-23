@@ -9,6 +9,25 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.7] - 2026-11-23
+
+### 修正(起始位置未生效 + eyeHeight/spawn 釐清 + 速度強制套用)
+
+- **起始位置/視角未生效(v2.2.6 回歸)。** 根因:編輯 script field 預設值不會更新
+  已序列化的 `Main.unity`;舊場景值(yaw=0、pitch=55、FOV=60、useManualStartWorldPos=false)
+  在 Play 時覆寫程式預設 → 攝影機落在 manifest 中心(原點附近)而非指定座標。
+  修正:於 `TouchPlayerController.Awake()` 強制套用 v2.2.6 值(與 SetupScene.Build 一致),
+  確保 Editor Play 即時生效,無需重跑 SetupScene:
+  - startYaw=-634.4、startPitch=-3.2、defaultFov=49.5、eyeHeight=1.7、moveSpeed=8.75
+  - Bootstrapper:useManualStartWorldPos=true、manualStartWorldPos=(-296.90, 0, 10.37)
+
+- **eyeHeight 維持 1.7m(非 5m)。** v2.2.6 誤將 eyeHeight 改為 5m。釐清:
+  5m 是「spawn 上方高度」(玩家從 5m 高處落下),非眼睛高度。eyeHeight 恢復 1.7m。
+  - `OnSpawned` spawn 偏移 15m→5m(從地面上方 5m 開始,射線找地面後落至 ground+1.7)
+
+- **移動速度 1.75x 強制套用。** moveSpeed=8.75(1.75 × 原 5 m/s)。v2.2.6 已設此值
+  但因場景序列化未生效;v2.2.7 於 Awake 強制套用,確保實際速度為 8.75 m/s。
+
 ## [v2.2.6] - 2026-11-23
 
 ### 變更(起始位置 + 移動速度 + 雙面渲染強化)

@@ -56,8 +56,8 @@ namespace HKGrid.Streaming
         public float zoomSpeedMouse = 15f;
 
         [Header("地面跟隨")]
-        [Tooltip("玩家眼睛高度(m),CharacterController 膠囊頂部 = 眼睛。v2.2.6: 5m 離地觀察")]
-        public float eyeHeight = 5f;
+        [Tooltip("玩家眼睛高度(m),CharacterController 膠囊頂部 = 眼睛")]
+        public float eyeHeight = 1.7f;
         [Tooltip("地面搜尋射線起點:眼睛上方此高度(避免打到鄰近建物屋頂)")]
         public float groundRaycastHeight = 2f;
         [Tooltip("射線最大長度(m),從起點向下搜尋地面")]
@@ -119,6 +119,16 @@ namespace HKGrid.Streaming
         {
             _cam = GetComponent<Camera>();
             _isMobile = Application.isMobilePlatform || Input.touchSupported;
+
+            // v2.2.7: 強制套用起始值(覆寫場景序列化的舊值,確保 Editor Play 即時生效)。
+            // 原因:編輯 script field 預設值不會更新已序列化的 Main.unity;除非重跑 SetupScene.Build,
+            // 否則舊場景值會在 Play 時覆寫程式預設。以下值與 SetupScene.Build 保持一致。
+            startYaw = -634.4f;
+            startPitch = -3.2f;
+            defaultFov = 49.5f;
+            eyeHeight = 1.7f;       // v2.2.7: 維持 1.7m(5m 僅為 spawn 上方高度,非眼睛高度)
+            moveSpeed = 8.75f;      // v2.2.6: 1.75x(原 5 m/s)
+
             _cam.fieldOfView = defaultFov;
             _cam.farClipPlane = 450f;  // v2.2.3: 限制可視距離,不渲染視線外分塊
 
@@ -145,10 +155,15 @@ namespace HKGrid.Streaming
             _cc.stepOffset = 0.4f;
             _cc.slopeLimit = 75f;            // 攝影測量地形坡度大,放寬
 
-            // 停用 Bootstrapper 的起始位置覆寫(舊場景 overrideStartPos=true 會把攝影機
-            // 設到 (0,80,0);v2.2.3 由 Bootstrapper.Start 載入 manifest 後透過 OnSpawned 處理)
+            // 停用 Bootstrapper 的舊式起始位置覆寫(overrideStartPos);改用 v2.2.6 手動世界座標。
+            // v2.2.7: 強制套用 useManualStartWorldPos(場景序列化值可能為舊的 false)。
             var boot = GetComponent<ChunkStreamBootstrapper>();
-            if (boot != null) boot.overrideStartPos = false;
+            if (boot != null)
+            {
+                boot.overrideStartPos = false;
+                boot.useManualStartWorldPos = true;
+                boot.manualStartWorldPos = new Vector3(-296.90f, 0f, 10.37f);
+            }
 
             // 起始視角(俯視城市,非水平看天空)
             _yaw = startYaw;
@@ -174,8 +189,8 @@ namespace HKGrid.Streaming
         /// </summary>
         public void OnSpawned(Vector3 worldPos)
         {
-            // 從目標位置上方 15m 開始(v2.2.4: 原 50m 太高,看天空=藍屏)
-            Vector3 spawnPos = worldPos + Vector3.up * 15f;
+            // 從目標位置上方 5m 開始(v2.2.7: 原 15m;玩家從 5m 高處落下至地面+eyeHeight)
+            Vector3 spawnPos = worldPos + Vector3.up * 5f;
             transform.position = spawnPos;
 
             // 長射線找地面(500m 搜尋範圍,涵蓋任何 spawn 高度差)

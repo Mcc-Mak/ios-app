@@ -116,11 +116,11 @@ namespace HKGrid.Editor
             // 6b. 強制更新 TouchPlayerController 欄位(覆寫舊場景殘留的預設值)
             //     v2.2.3: startPosition 不再硬編——由 Bootstrapper 載入 manifest 後透過 OnSpawned() 設定。
             //     v2.2.4: startPitch 25→55(原太淺看天空=藍屏)、搖桿改 pan/tilt
-            //     v2.2.6: 指定起始位置/視角(eyeHeight=5、yaw=-634.4、pitch=-3.2、FOV=49.5)、moveSpeed 1.75x
+            //     v2.2.6: 指定起始位置/視角(eyeHeight=1.7、yaw=-634.4、pitch=-3.2、FOV=49.5)、moveSpeed 1.75x
             player.groundRaycastHeight = 2f;
             player.groundRaycastLength = 250f;
             player.maxYSnapPerFrame = 80f;
-            player.eyeHeight = 5f;            // v2.2.6: 離地 5m
+            player.eyeHeight = 1.7f;          // v2.2.7: 維持 1.7m(5m 僅為 spawn 高度)
             player.startPitch = -3.2f;        // v2.2.6: 近水平(原 55 俯視)
             player.startYaw = -634.4f;        // v2.2.6: 指定朝向
             player.defaultFov = 49.5f;        // v2.2.6: 較窄 FOV(原 60)
