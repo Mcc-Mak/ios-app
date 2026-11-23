@@ -238,8 +238,11 @@ namespace HKGrid.Streaming
 
         /// <summary>v2.2.5: 將分塊所有材質設為雙面渲染(Cull Mode: Off)。</summary>
         /// <remarks>
-        /// glTFast 依 glTF 材質的 doubleSided 屬性決定 _Cull(預設 2=Back 單面)。
-        /// 此處一律覆寫為 0=Off(雙面),修正攝影機從背面/內側看穿牆壁與地面。
+        /// glTFast 依 glTF 材質的 doubleSided 屬性決定背面剔除。攝影測量網格可能因
+        /// 法線纏繞不一致,導致部分地面/牆面從某些角度「突然消失」(被當成背面剔除)。
+        /// 此處一律覆寫為雙面(關閉剔除),修正「無表面」問題。
+        /// 兼容兩種管線:Built-in RP 的 Standard shader 用 _Cull;URP/HDRP Lit 用 _CullMode。
+        /// 值皆為:0 = Off(雙面), 2 = Back(預設單面)。
         /// 使用 sharedMaterials + HashSet 去重,避免重複設定同一材質。
         /// cacheGltfImports=false 時各分塊材質互不共用,覆寫安全。
         /// </remarks>
@@ -251,10 +254,13 @@ namespace HKGrid.Streaming
                 foreach (var mat in r.sharedMaterials)
                 {
                     if (mat == null) continue;
-                    if (mat.HasProperty("_Cull") && seen.Add(mat))
-                    {
-                        mat.SetInt("_Cull", 0);  // 0 = Off(雙面), 2 = Back(預設單面)
-                    }
+                    if (!seen.Add(mat)) continue;  // 已處理過此材質
+                    // Built-in RP(Standard shader):_Cull
+                    if (mat.HasProperty("_Cull"))
+                        mat.SetInt("_Cull", 0);
+                    // URP / HDRP(Lit shader):_CullMode
+                    if (mat.HasProperty("_CullMode"))
+                        mat.SetInt("_CullMode", 0);
                 }
             }
         }

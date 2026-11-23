@@ -9,6 +9,27 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.6] - 2026-11-23
+
+### 變更(起始位置 + 移動速度 + 雙面渲染強化)
+
+- **指定起始位置與視角。** 攝影機起始於 X=-296.90、Z=10.37(Unity 世界座標),
+  離地 5m(Y 由地面射線決定 = groundY + eyeHeight),yaw=-634.4、pitch=-3.2、FOV=49.5。
+  - `ChunkStreamBootstrapper` 新增 `useManualStartWorldPos` + `manualStartWorldPos`:
+    啟用後以指定 X/Z 覆寫 manifest 推導的起始位置(向後相容,停用則用 manifest 中心)。
+  - `TouchPlayerController.eyeHeight` 1.7→5(離地 5m 觀察)、`defaultFov` 60→49.5、
+    `startYaw` 0→-634.4、`startPitch` 55→-3.2。
+
+- **移動速度 1.75×。** `moveSpeed` 5→8.75 m/s(1.75 倍)。影響桌面 WASD 測試移動;
+  行動裝置仍為 pan/tilt(v2.2.4),無移動輸入。
+
+- **雙面渲染強化(修正「地面突然消失」)。** 攝影測量網格法線纏繞可能不一致,
+  從某些角度地面面被當成背面剔除 → 「連續地面突然無表面」。
+  - `ChunkStreamer.ForceDoubleSidedRecursive` 兼容兩種管線:
+    Built-in RP(`_Cull`)+ URP/HDRP(`_CullMode`),皆設 0=Off(雙面)。
+  - 本專案為 Built-in RP,`_Cull` 生效;額外檢查 `_CullMode` 以防未來切換 URP。
+  - 測試座標:X=-190.62, Y=-62.17, Z=0.66, yaw=-735.2, pitch=14.8(原地面消失點)。
+
 ## [v2.2.5] - 2026-11-23
 
 ### 新增(雙面渲染 + 本地高解析度 + 座標除錯)

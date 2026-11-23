@@ -29,6 +29,14 @@ namespace HKGrid.Streaming
         public bool overrideStartPos = false;
         public Vector3 startLocalPos = new Vector3(0f, 0f, 80f); // 預設圖幅中心上空 80m(Z-up 本地座標)
 
+        [Header("v2.2.6: 手動起始位置(Unity 世界座標)")]
+        [Tooltip("啟用後使用 manualStartWorldPos 的 X/Z 作為攝影機起始位置;" +
+                 "Y 由 OnSpawned 射線找地面後決定(groundY + eyeHeight)。" +
+                 "用於跳至特定觀察點(例如按 L 鍵記錄的座標);停用則用 manifest 中心。")]
+        public bool useManualStartWorldPos = false;
+        [Tooltip("攝影機起始位置(Unity 世界座標)。Y 欄位忽略——由地面射線決定。")]
+        public Vector3 manualStartWorldPos = new Vector3(-296.90f, 0f, 10.37f);
+
         private ChunkStreamer _streamer;
         private Transform _worldRoot;
         private bool _ready;
@@ -124,6 +132,16 @@ namespace HKGrid.Streaming
                 Quaternion yup = config.applyZupToYupRotation
                     ? Quaternion.Euler(-90f, 0f, 0f) : Quaternion.identity;
                 Vector3 startWorld = yup * startLocal;
+
+                // v2.2.6: 手動起始位置覆寫(Unity 世界座標)。
+                // 使用者按 L 鍵記錄的理想觀察點;Y 由 OnSpawned 射線找地面後決定。
+                if (useManualStartWorldPos)
+                {
+                    startWorld.x = manualStartWorldPos.x;
+                    startWorld.z = manualStartWorldPos.z;
+                    Debug.Log($"[Bootstrapper] 手動起始位置覆寫: X={startWorld.x}, Z={startWorld.z} " +
+                              $"(Y 由地面射線決定)");
+                }
 
                 // 設定攝影機並觸發 TouchPlayerController 初始地面搜尋
                 var player = camera.GetComponent<TouchPlayerController>();

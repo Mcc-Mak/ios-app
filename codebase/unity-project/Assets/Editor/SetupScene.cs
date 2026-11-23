@@ -87,6 +87,9 @@ namespace HKGrid.Editor
             // 不由 Bootstrapper 覆寫起始位置;TouchPlayerController.Awake 負責定位
             // (舊版 overrideStartPos=true 會與 TouchPlayerController 競爭 Awake 順序)
             boot.overrideStartPos = false;
+            // v2.2.6: 手動起始位置(Unity 世界座標,X=-296.90, Z=10.37;Y 由射線決定)
+            boot.useManualStartWorldPos = true;
+            boot.manualStartWorldPos = new Vector3(-296.90f, 0f, 10.37f);
 
             // 6. 掛 TouchPlayerController(觸控 FPS;桌面自動回退 WASD)。移除舊版 FlyCameraController。
             var oldFly = cam.GetComponent<FlyCameraController>();
@@ -110,14 +113,18 @@ namespace HKGrid.Editor
                 Debug.Log("[SetupScene] 掛上 CharacterController");
             }
 
-            // 6b. 強制更新 TouchPlayerController 欄位(覆寫舊場景殘留的 v2.2.0 預設值)
+            // 6b. 強制更新 TouchPlayerController 欄位(覆寫舊場景殘留的預設值)
             //     v2.2.3: startPosition 不再硬編——由 Bootstrapper 載入 manifest 後透過 OnSpawned() 設定。
             //     v2.2.4: startPitch 25→55(原太淺看天空=藍屏)、搖桿改 pan/tilt
+            //     v2.2.6: 指定起始位置/視角(eyeHeight=5、yaw=-634.4、pitch=-3.2、FOV=49.5)、moveSpeed 1.75x
             player.groundRaycastHeight = 2f;
             player.groundRaycastLength = 250f;
             player.maxYSnapPerFrame = 80f;
-            player.startPitch = 55f;
-            player.startYaw = 0f;
+            player.eyeHeight = 5f;            // v2.2.6: 離地 5m
+            player.startPitch = -3.2f;        // v2.2.6: 近水平(原 55 俯視)
+            player.startYaw = -634.4f;        // v2.2.6: 指定朝向
+            player.defaultFov = 49.5f;        // v2.2.6: 較窄 FOV(原 60)
+            player.moveSpeed = 8.75f;         // v2.2.6: 1.75x(原 5)
             player.joystickLookSpeed = 90f;
             EditorUtility.SetDirty(player);
 

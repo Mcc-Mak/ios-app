@@ -33,12 +33,12 @@ namespace HKGrid.Streaming
         [Tooltip("起始位置(Unity 世界座標,Y-up。已套用 Z-up→Y-up 旋轉)。預設 = WGS84 [22.3319, 114.1871] 九龍城區")]
         public Vector3 startPosition = new Vector3(947f, 0f, -124f);
         [Tooltip("起始水平視角(Yaw,度)。0=+Z/南,90=+X/東")]
-        public float startYaw = 0f;
+        public float startYaw = -634.4f;
         [Tooltip("起始俯角(Pitch,度)。正值=向下看,看到地面/城市")]
-        public float startPitch = 55f;
+        public float startPitch = -3.2f;
         [Header("移動")]
-        [Tooltip("步行速度(m/s)")]
-        public float moveSpeed = 5f;
+        [Tooltip("步行速度(m/s)。v2.2.6: 1.75x = 8.75")]
+        public float moveSpeed = 8.75f;
         [Tooltip("衝刺倍率(桌面 Shift / 行動雙擊搖桿)")]
         public float sprintMultiplier = 2f;
 
@@ -49,15 +49,15 @@ namespace HKGrid.Streaming
         public float maxPitch = 85f;
 
         [Header("縮放(FOV)")]
-        public float defaultFov = 60f;
+        public float defaultFov = 49.5f;
         public float minFov = 25f;     // 放大(zoom in / ADS)
         public float maxFov = 90f;     // 縮小(zoom out)
         public float zoomSpeedTouch = 0.08f;
         public float zoomSpeedMouse = 15f;
 
         [Header("地面跟隨")]
-        [Tooltip("玩家眼睛高度(m),CharacterController 膠囊頂部 = 眼睛")]
-        public float eyeHeight = 1.7f;
+        [Tooltip("玩家眼睛高度(m),CharacterController 膠囊頂部 = 眼睛。v2.2.6: 5m 離地觀察")]
+        public float eyeHeight = 5f;
         [Tooltip("地面搜尋射線起點:眼睛上方此高度(避免打到鄰近建物屋頂)")]
         public float groundRaycastHeight = 2f;
         [Tooltip("射線最大長度(m),從起點向下搜尋地面")]
