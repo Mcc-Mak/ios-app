@@ -174,6 +174,12 @@ namespace HKGrid.Streaming
                     AddCollidersRecursive(chunkGo);
                 }
 
+                // v2.2.5: 強制雙面渲染(Cull Off),修正從背面/內側看穿牆壁與地面
+                if (_config.forceDoubleSided)
+                {
+                    ForceDoubleSidedRecursive(chunkGo);
+                }
+
                 _loaded[rec.id] = new LoadedChunk
                 {
                     id = rec.id,
@@ -226,6 +232,29 @@ namespace HKGrid.Streaming
                     if (mc == null)
                         mc = mf.gameObject.AddComponent<MeshCollider>();
                     mc.sharedMesh = mf.sharedMesh;
+                }
+            }
+        }
+
+        /// <summary>v2.2.5: 將分塊所有材質設為雙面渲染(Cull Mode: Off)。</summary>
+        /// <remarks>
+        /// glTFast 依 glTF 材質的 doubleSided 屬性決定 _Cull(預設 2=Back 單面)。
+        /// 此處一律覆寫為 0=Off(雙面),修正攝影機從背面/內側看穿牆壁與地面。
+        /// 使用 sharedMaterials + HashSet 去重,避免重複設定同一材質。
+        /// cacheGltfImports=false 時各分塊材質互不共用,覆寫安全。
+        /// </remarks>
+        private static void ForceDoubleSidedRecursive(GameObject root)
+        {
+            var seen = new HashSet<Material>();
+            foreach (var r in root.GetComponentsInChildren<Renderer>())
+            {
+                foreach (var mat in r.sharedMaterials)
+                {
+                    if (mat == null) continue;
+                    if (mat.HasProperty("_Cull") && seen.Add(mat))
+                    {
+                        mat.SetInt("_Cull", 0);  // 0 = Off(雙面), 2 = Back(預設單面)
+                    }
                 }
             }
         }

@@ -128,6 +128,7 @@ namespace HKGrid.Editor
             config.cameraFarClip = 450f;
             config.gltfFrameBudget = 0.15f;
             config.addChunkColliders = true;
+            config.forceDoubleSided = true;  // v2.2.5: 雙面渲染(Cull Off)
             EditorUtility.SetDirty(config);
 
             // 7. 方向光(若場景內無,讓網格有基本照明)

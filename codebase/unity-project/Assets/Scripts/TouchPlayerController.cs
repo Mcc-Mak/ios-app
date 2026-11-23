@@ -228,6 +228,14 @@ namespace HKGrid.Streaming
                 _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
             }
 
+            // v2.2.5: 按 L 鍵印出攝影機座標(Unity Editor 除錯用)
+            if (Input.GetKeyDown(KeyCode.L))
+            {
+                Vector3 p = transform.position;
+                Debug.Log($"[TouchPlayerController] 座標: X={p.x:F2}, Y={p.y:F2}, Z={p.z:F2} | " +
+                          $"yaw={_yaw:F1}, pitch={_pitch:F1} | FOV={_cam.fieldOfView:F1}");
+            }
+
             ApplyLook();
             if (_spawned)
                 ApplyMovement();  // 含 CharacterController 碰撞 + 地面跟隨(v2.2.3: 等 OnSpawned 後才啟動)

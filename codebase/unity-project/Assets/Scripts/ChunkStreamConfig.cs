@@ -51,6 +51,11 @@ namespace HKGrid.Streaming
                  + "效能代價較高(L18 每塊 ~70K 面),但 FPS 地面行走必需。關閉則玩家懸空。")]
         public bool addChunkColliders = true;
 
+        [Header("材質")]
+        [Tooltip("v2.2.5: 強制雙面渲染(Cull Mode: Off)。修正從背面/內側看穿牆壁與地面問題。" +
+                 "分塊載入後覆寫所有材質的 _Cull=0。輕微增加 GPU 負載。")]
+        public bool forceDoubleSided = true;
+
         [Header("除錯")]
         public bool drawChunkGizmos = false;
         public bool logStreamingEvents = false;

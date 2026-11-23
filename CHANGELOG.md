@@ -9,6 +9,32 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.5] - 2026-11-23
+
+### 新增(雙面渲染 + 本地高解析度 + 座標除錯)
+
+- **強制雙面渲染(Cull Mode: Off)。** glTFast 依 glTF 材質的 `doubleSided`
+  屬性決定 `_Cull`(預設 2=Back 單面),攝影機從背面/內側看會看穿牆壁與地面。
+  新增 `ChunkStreamConfig.forceDoubleSided`(預設 true):分塊載入後覆寫所有
+  材質 `_Cull=0`(雙面),修正看穿問題。輕微增加 GPU 負載。
+
+- **本地高解析度 / IPA 低解析度分離。** Editor Play 模式使用高解析度分塊
+  (15B L17,37.3 MB,430K 面),IPA 使用低解析度(15B L16 nofloat,18.7 MB)。
+  - `BuildIOS.Export` 新增 `IPA_CHUNKS_SOURCE_DIR` 環境變數:匯出前將指定目錄的
+    分塊複製到 `StreamingAssets/Chunks`,確保 IPA 不受本地高解析度影響。
+  - 未設定時沿用現有內容(向後相容)。
+  - 新增 `codebase/scripts/swap_chunks.ps1` 切換腳本(local / ipa / status)。
+
+- **按 L 鍵印出攝影機座標(Unity Editor 除錯用)。** `TouchPlayerController.Update`
+  新增 `Input.GetKeyDown(KeyCode.L)` → Debug.Log 印出 (X,Y,Z)、yaw、pitch、FOV。
+
+### 變更
+- `ChunkStreamConfig.cs`:新增 `forceDoubleSided` 欄位
+- `ChunkStreamer.cs`:載入後 `ForceDoubleSidedRecursive()` 覆寫材質 `_Cull=0`
+- `TouchPlayerController.cs`:新增 L 鍵座標除錯
+- `SetupScene.cs`:強制 `forceDoubleSided=true`
+- `BuildIOS.cs`:新增 `CopyIpaChunksIfNeeded()`(IPA_CHUNKS_SOURCE_DIR)
+
 ## [v2.2.4] - 2026-11-20
 
 ### 修正(IPhone 藍屏 + 搖桿改 pan/tilt)

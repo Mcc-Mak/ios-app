@@ -36,10 +36,49 @@ public static class BuildIOS
     /// </summary>
     public static void Export()
     {
+        // v2.2.5: 匯出前確保 StreamingAssets/Chunks 為低解析度 IPA 版(若設定 IPA_CHUNKS_SOURCE_DIR)
+        CopyIpaChunksIfNeeded();
         // 先更新場景(確保 TouchPlayerController 等最新元件已烘培至 Main.unity)
         HKGrid.Editor.SetupScene.Build();
         ConfigurePlayerSettings();
         BuildPlayer();
+    }
+
+    // StreamingAssets/Chunks 的 Assets 相對路徑(供 IPA 分塊覆寫)
+    private const string ChunksAssetPath = "Assets/StreamingAssets/Chunks";
+
+    /// <summary>
+    /// v2.2.5: 若設定 IPA_CHUNKS_SOURCE_DIR 環境變數,匯出前將該目錄的分塊資料
+    /// (manifest.json + *.glb)複製到 StreamingAssets/Chunks,確保 IPA 使用低解析度版本,
+    /// 不受本地 Editor Play 模式使用的高解析度分塊影響。未設定時沿用現有內容(向後相容)。
+    /// </summary>
+    private static void CopyIpaChunksIfNeeded()
+    {
+        var src = System.Environment.GetEnvironmentVariable("IPA_CHUNKS_SOURCE_DIR");
+        if (string.IsNullOrEmpty(src) || !System.IO.Directory.Exists(src))
+        {
+            Debug.Log("[BuildIOS] IPA_CHUNKS_SOURCE_DIR 未設定或不存在,沿用現有 StreamingAssets/Chunks");
+            return;
+        }
+        // 使用 Application.streamingAssetsPath(專案絕對路徑,不受 batchmode CWD 影響)
+        string dst = System.IO.Path.Combine(Application.streamingAssetsPath, "Chunks");
+        System.IO.Directory.CreateDirectory(dst);
+        // 清空目的地舊檔(避免殘留高解析度 .glb)
+        foreach (var f in System.IO.Directory.GetFiles(dst))
+            System.IO.File.Delete(f);
+        // 複製來源全部檔案(manifest.json + *.glb)
+        int n = 0;
+        long totalBytes = 0;
+        foreach (var f in System.IO.Directory.GetFiles(src))
+        {
+            System.IO.File.Copy(f, System.IO.Path.Combine(dst, System.IO.Path.GetFileName(f)), overwrite: true);
+            n++;
+            totalBytes += new System.IO.FileInfo(f).Length;
+        }
+        // 重新匯入,確保 BuildPipeline 使用最新資源
+        AssetDatabase.ImportAsset(ChunksAssetPath, ImportAssetOptions.ImportRecursive | ImportAssetOptions.ForceUpdate);
+        Debug.Log($"[BuildIOS] 已複製 {n} 個 IPA 分塊檔至 StreamingAssets/Chunks " +
+                  $"({totalBytes / 1024.0 / 1024.0:F1} MB,來源: {src})");
     }
 
     /// <summary>
