@@ -296,6 +296,39 @@ namespace HKGrid.Streaming
                 for (int j = 0; j < res; j++)
                     if (!hasData[i, j]) groundY[i, j] = overallMinY;
 
+            // ── 3b. v2.2.14: 坑洞離群值鉗制 ──
+            // 某些格的 min-Y 可能是攝影測量深坑(天井/下沉庭院/雜訊),遠低於鄰居。
+            // 若填補面跟隨此深坑下移,玩家跨入即被困住(即使 belowOffset 已降至 0.05m)。
+            // 對「低於鄰居平均超過 PIT_THRESHOLD」的格,將填補高度提升至鄰居平均,
+            // 使填補面成為連續可走的安全網(真實網格仍顯示實際地形;填補僅為防墜地板)。
+            const float PIT_THRESHOLD = 8f;  // m,低於鄰居平均此值視為坑洞離群值
+            for (int i = 0; i < res; i++)
+            {
+                for (int j = 0; j < res; j++)
+                {
+                    float sum = 0f; int count = 0;
+                    for (int di = -1; di <= 1; di++)
+                    {
+                        for (int dj = -1; dj <= 1; dj++)
+                        {
+                            if (di == 0 && dj == 0) continue;
+                            int ni = i + di, nj = j + dj;
+                            if (ni >= 0 && ni < res && nj >= 0 && nj < res)
+                            {
+                                sum += groundY[ni, nj];
+                                count++;
+                            }
+                        }
+                    }
+                    if (count > 0)
+                    {
+                        float nbrAvg = sum / count;
+                        if (groundY[i, j] < nbrAvg - PIT_THRESHOLD)
+                            groundY[i, j] = nbrAvg;  // 提升至鄰居平均(消除深坑)
+                    }
+                }
+            }
+
             // ── 4. 建立高度場網格(填補面 = 地面Y - belowOffset)──
             int vCount = res * res;
             var vertices = new Vector3[vCount];

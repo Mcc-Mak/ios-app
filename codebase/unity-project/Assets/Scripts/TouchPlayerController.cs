@@ -167,7 +167,7 @@ namespace HKGrid.Streaming
             _cc.height = eyeHeight + 0.3f;   // 略高於眼睛,涵蓋頭頂
             _cc.radius = 0.3f;               // 薄膠囊,可穿過門
             _cc.center = new Vector3(0f, -(_cc.height * 0.5f) + 0.15f, 0f); // 底部在腳,頂部略高於眼
-            _cc.stepOffset = 0.4f;
+            _cc.stepOffset = 0.6f;            // v2.2.14: 0.4→0.6,可踏回 0.5m 以下的地面落差(填補面/真實網格邊界)
             _cc.slopeLimit = 75f;            // 攝影測量地形坡度大,放寬
 
             // 停用 Bootstrapper 的舊式起始位置覆寫(overrideStartPos)。

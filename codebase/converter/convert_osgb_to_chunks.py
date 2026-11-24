@@ -280,11 +280,20 @@ def build_chunk_glb(
     decimate_threshold: int,
     recenter: np.ndarray,
     floating_removal: bool = True,
+    neighbor_boundary_verts: dict | None = None,
+    weld_tolerance: float = 0.5,
 ) -> tuple[int, int, np.ndarray, np.ndarray]:
     """
     載入一個子圖幅的所有 OBJ(含紋理),以 pymeshlab 的 UV 保留簡化至目標大小,
     降解析度紋理,重新置中至 recenter(本地座標),匯出單一 .glb(可含多 mesh)。
     回傳 (位元組數, 三角面總數, bbox_min, bbox_max)。
+
+    v2.2.14:
+      - preserveboundary=True:簡化不碰邊界頂點(消除跨分塊撕裂)。
+      - neighbor_boundary_verts:鄰居分塊的邊界頂點(OSGB 座標,未置中)。
+        置中後以 KDTree 配對本塊邊界頂點,在 weld_tolerance 內 snap 至平均,
+        使相鄰分塊邊界頂點位置一致(消除裂紋)。preserveboundary 保證邊界頂點
+        在簡化前後不變,故預掃描的邊界頂點 = 最終邊界頂點。
 
     L17+ 一個子圖幅可能有多個 .osgb/.obj(四元樹分裂);此函式對每個 OBJ 各自
     簡化(預算均分),再以 trimesh 收集所有網格合併為單一 GLB。root/l15/l16
@@ -333,13 +342,15 @@ def build_chunk_glb(
                   oi + 1, len(obj_paths), orig_faces, per_file_target)
 
         # 簡化(若需要)
+        # v2.2.14: preserveboundary=True — 禁止簡化碰觸邊界頂點/邊,
+        # 使相鄰分塊的邊界保持來源位置(消除簡化造成的跨分塊撕裂/縫隙)。
         if orig_faces > per_file_target and orig_faces > decimate_threshold:
             try:
                 ms.meshing_decimation_quadric_edge_collapse_with_texture(
-                    targetfacenum=per_file_target
+                    targetfacenum=per_file_target, preserveboundary=True
                 )
                 m1 = ms.current_mesh()
-                log.debug("  [%d] decimated: %d → %d faces, %d textures",
+                log.debug("  [%d] decimated: %d → %d faces, %d textures (preserveboundary)",
                           oi, orig_faces, m1.face_number(), m1.texture_number())
             except Exception as e:
                 log.warning("  [%d] pymeshlab 簡化失敗(%s),保留原始", oi, e)
@@ -488,6 +499,111 @@ def build_chunk_glb(
         g.vertices = g.vertices - recenter
         _downscale_textures(g, max_texture_px)
 
+    # v2.2.14: 跨分塊邊界頂點焊接(方向性:僅配對共享面的邊界頂點)。
+    # preserveboundary=True 保證邊界頂點簡化前後不變,故可與預掃描的鄰居邊界頂點
+    # 直接配對。依相鄰方向(東/西/南/北)僅取共享面的邊界頂點配對,避免非共享面
+    # (如頂/底面)污染配對。在 weld_tolerance(0.5m)內 snap 至平均 → 消除裂紋。
+    if neighbor_boundary_verts:
+        try:
+            from scipy.spatial import cKDTree
+            BOUNDARY_EPS = 0.5  # m,頂點離 bbox 面此距離內視為邊界頂點
+            bmin_rc = bbox_min - recenter
+            bmax_rc = bbox_max - recenter
+            log.debug("  焊接啟動: %d 鄰居, bbox_rc X[%.1f,%.1f] Y[%.1f,%.1f] Z[%.1f,%.1f]",
+                      len(neighbor_boundary_verts),
+                      bmin_rc[0], bmax_rc[0], bmin_rc[1], bmax_rc[1], bmin_rc[2], bmax_rc[2])
+            # 預先收集本塊每個面的邊界頂點(已置中座標)+ 其 (geom_i, vert_i)
+            # 面 0=−X(minX), 1=+X(maxX), 2=−Y(minY), 3=+Y(maxY)
+            face_self_pts: list[list[np.ndarray]] = [[], [], [], []]
+            face_self_idx: list[list[tuple[int, int]]] = [[], [], [], []]
+            for gi, g in enumerate(geometries):
+                va = np.asarray(g.vertices)
+                if len(va) == 0:
+                    continue
+                face_masks = [
+                    np.abs(va[:, 0] - bmin_rc[0]) < BOUNDARY_EPS,  # −X
+                    np.abs(va[:, 0] - bmax_rc[0]) < BOUNDARY_EPS,  # +X
+                    np.abs(va[:, 1] - bmin_rc[1]) < BOUNDARY_EPS,  # −Y
+                    np.abs(va[:, 1] - bmax_rc[1]) < BOUNDARY_EPS,  # +Y
+                ]
+                for face_id in range(4):
+                    for vi in np.where(face_masks[face_id])[0]:
+                        face_self_pts[face_id].append(va[vi])
+                        face_self_idx[face_id].append((gi, int(vi)))
+            snapped = 0
+            for nbr_id, nbr_data in neighbor_boundary_verts.items():
+                if nbr_data is None:
+                    continue
+                nbr_verts_osgb, nbr_bmin, nbr_bmax = nbr_data
+                if nbr_verts_osgb is None or len(nbr_verts_osgb) == 0:
+                    continue
+                nbr_bmin_rc = np.asarray(nbr_bmin) - recenter
+                nbr_bmax_rc = np.asarray(nbr_bmax) - recenter
+                # 判定共享面:比較兩塊 bbox 的 X/Y 邊界
+                # 若 self.maxX ≈ nbr.minX → self 的 +X 面 = nbr 的 −X 面(東側鄰居)
+                # 若 self.minX ≈ nbr.maxX → self 的 −X 面 = nbr 的 +X 面(西側鄰居)
+                # 同理 Y
+                shared_faces: list[tuple[int, int]] = []  # (self_face, nbr_face)
+                if abs(bmax_rc[0] - nbr_bmin_rc[0]) < 5.0 or abs(bmax_rc[0] - nbr_bmax_rc[0]) < 5.0:
+                    shared_faces.append((1, 0))  # self +X ↔ nbr −X
+                if abs(bmin_rc[0] - nbr_bmax_rc[0]) < 5.0 or abs(bmin_rc[0] - nbr_bmin_rc[0]) < 5.0:
+                    shared_faces.append((0, 1))  # self −X ↔ nbr +X
+                if abs(bmax_rc[1] - nbr_bmin_rc[1]) < 5.0 or abs(bmax_rc[1] - nbr_bmax_rc[1]) < 5.0:
+                    shared_faces.append((3, 2))  # self +Y ↔ nbr −Y
+                if abs(bmin_rc[1] - nbr_bmax_rc[1]) < 5.0 or abs(bmin_rc[1] - nbr_bmin_rc[1]) < 5.0:
+                    shared_faces.append((2, 3))  # self −Y ↔ nbr +Y
+                if not shared_faces:
+                    log.debug("  焊接 %s: 無共享面(self X[%.1f,%.1f] Y[%.1f,%.1f] vs nbr X[%.1f,%.1f] Y[%.1f,%.1f])",
+                              nbr_id, bmin_rc[0], bmax_rc[0], bmin_rc[1], bmax_rc[1],
+                              nbr_bmin_rc[0], nbr_bmax_rc[0], nbr_bmin_rc[1], nbr_bmax_rc[1])
+                    continue
+                log.debug("  焊接 %s: 共享面 %s", nbr_id, shared_faces)
+                # 收集鄰居在共享面上的邊界頂點(已置中)
+                nbr_all = np.asarray(nbr_verts_osgb) - recenter
+                nbr_face_masks = [
+                    np.abs(nbr_all[:, 0] - nbr_bmin_rc[0]) < BOUNDARY_EPS,  # −X
+                    np.abs(nbr_all[:, 0] - nbr_bmax_rc[0]) < BOUNDARY_EPS,  # +X
+                    np.abs(nbr_all[:, 1] - nbr_bmin_rc[1]) < BOUNDARY_EPS,  # −Y
+                    np.abs(nbr_all[:, 1] - nbr_bmax_rc[1]) < BOUNDARY_EPS,  # +Y
+                ]
+                per_g: dict[int, dict[int, np.ndarray]] = {}
+                for self_face, nbr_face in shared_faces:
+                    if not face_self_pts[self_face]:
+                        log.debug("    面 %d: self 無邊界頂點", self_face)
+                        continue
+                    nbr_face_pts = nbr_all[nbr_face_masks[nbr_face]]
+                    if len(nbr_face_pts) == 0:
+                        log.debug("    面 %d↔%d: self=%d 頂點, nbr=0 (跳過)", self_face, nbr_face, len(face_self_pts[self_face]))
+                        continue
+                    self_arr = np.array(face_self_pts[self_face])
+                    tree = cKDTree(nbr_face_pts)
+                    dists, idxs = tree.query(self_arr, k=1,
+                                             distance_upper_bound=weld_tolerance)
+                    face_matches = 0
+                    for si in range(len(self_arr)):
+                        ni = int(idxs[si])
+                        if ni < len(nbr_face_pts) and dists[si] <= weld_tolerance:
+                            avg = (self_arr[si] + nbr_face_pts[ni]) / 2.0
+                            gi, vi = face_self_idx[self_face][si]
+                            per_g.setdefault(gi, {})[vi] = avg
+                            snapped += 1
+                            face_matches += 1
+                    log.debug("    面 %d↔%d: self=%d, nbr=%d, 配對=%d (min_dist=%.3f, med_dist=%.3f)",
+                              self_face, nbr_face, len(self_arr), len(nbr_face_pts),
+                              face_matches, float(dists.min()), float(np.median(dists)))
+                for gi, vupd in per_g.items():
+                    g = geometries[gi]
+                    arr = np.array(g.vertices, dtype=float, copy=True)
+                    for vi, pos in vupd.items():
+                        arr[vi] = pos
+                    g.vertices = arr
+            if snapped > 0:
+                log.debug("  邊界焊接(方向性): snap %d 頂點至鄰居(tolerance=%.2fm)", snapped, weld_tolerance)
+        except ImportError:
+            log.debug("  邊界焊接跳過(scipy 不可用)")
+        except Exception as e:
+            log.debug("  邊界焊接跳過(%s)", e)
+
     total_tris = sum(len(g.faces) for g in geometries)
 
     # 6. 匯出 GLB
@@ -509,7 +625,7 @@ def build_chunk_glb(
                 ms2.load_new_mesh(str(tmp_obj))
                 if ms2.current_mesh().face_number() > new_per_file:
                     ms2.meshing_decimation_quadric_edge_collapse_with_texture(
-                        targetfacenum=new_per_file
+                        targetfacenum=new_per_file, preserveboundary=True
                     )
                 ms2.save_current_mesh(str(tmp_obj))
                 scene2 = trimesh.load(str(tmp_obj), force="scene")
@@ -677,11 +793,17 @@ def main() -> int:
 
     # 先做一次完整載入以計算全域 bbox / 置中點(用第一個子圖幅的根估計,
     # 實際每塊獨立轉換時會各自取 bbox;manifest 的 origin 取所有子圖幅的總中心)
-    log.info("=== 預先掃描所有子圖幅的 bbox 以計算置中點 ===")
+    # v2.2.14: 同時預掃描每個子圖幅的邊界頂點(OSGB 座標),供跨分塊焊接。
+    #   preserveboundary=True 保證邊界頂點簡化前後不變,故預掃描值 = 最終值。
+    log.info("=== 預先掃描所有子圖幅的 bbox + 邊界頂點以計算置中點 ===")
     all_min = np.array([np.inf, np.inf, np.inf])
     all_max = np.array([-np.inf, -np.inf, -np.inf])
     # 為了避免重複轉換,先快速 osgconv 所有根 OBJ 到 work_dir,記錄 bbox
     obj_cache: dict[int, list[Path]] = {}
+    # v2.2.14: 子圖幅 index → (邊界頂點陣列, bbox_min, bbox_max)(OSGB 座標,未置中)
+    # 焊接時依相鄰方向僅取共享面的邊界頂點,避免非共享面(如頂/底面)污染配對。
+    boundary_verts_cache: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    BOUNDARY_EPS_PRE = 0.5  # m,預掃描邊界頂點判定距離
     for s in subtiles:
         obj_out = work_dir / s.dir_name
         try:
@@ -691,13 +813,36 @@ def main() -> int:
             obj_cache[s.index] = objs
             # 快速讀取頂點範圍(不載入紋理);L17+ 多檔全部納入 bbox
             import trimesh
+            c_min = np.array([np.inf, np.inf, np.inf])
+            c_max = np.array([-np.inf, -np.inf, -np.inf])
+            chunk_verts: list[np.ndarray] = []
             for obj_path in objs:
                 sc = trimesh.load(str(obj_path), force="scene")
                 if isinstance(sc, trimesh.Scene):
                     for _n, g in sc.geometry.items():
                         if hasattr(g, "vertices") and len(g.vertices) > 0:
-                            all_min = np.minimum(all_min, g.vertices.min(axis=0))
-                            all_max = np.maximum(all_max, g.vertices.max(axis=0))
+                            va = np.asarray(g.vertices)
+                            c_min = np.minimum(c_min, va.min(axis=0))
+                            c_max = np.maximum(c_max, va.max(axis=0))
+                            chunk_verts.append(va)
+                elif hasattr(sc, "vertices") and len(sc.vertices) > 0:
+                    va = np.asarray(sc.vertices)
+                    c_min = np.minimum(c_min, va.min(axis=0))
+                    c_max = np.maximum(c_max, va.max(axis=0))
+                    chunk_verts.append(va)
+            all_min = np.minimum(all_min, c_min)
+            all_max = np.maximum(all_max, c_max)
+            # 邊界頂點:靠近本子圖幅 bbox 任一面的頂點
+            if chunk_verts and np.isfinite(c_min[0]):
+                cv = np.concatenate(chunk_verts, axis=0)
+                near = ((np.abs(cv[:, 0] - c_min[0]) < BOUNDARY_EPS_PRE) |
+                        (np.abs(cv[:, 0] - c_max[0]) < BOUNDARY_EPS_PRE) |
+                        (np.abs(cv[:, 1] - c_min[1]) < BOUNDARY_EPS_PRE) |
+                        (np.abs(cv[:, 1] - c_max[1]) < BOUNDARY_EPS_PRE) |
+                        (np.abs(cv[:, 2] - c_min[2]) < BOUNDARY_EPS_PRE) |
+                        (np.abs(cv[:, 2] - c_max[2]) < BOUNDARY_EPS_PRE))
+                boundary_verts_cache[s.index] = (cv[near].copy(), c_min.copy(), c_max.copy())
+                log.debug("  子圖幅 %d 邊界頂點: %d / %d", s.index, int(near.sum()), len(cv))
         except Exception as e:
             log.warning("子圖幅 %d 預掃描失敗: %s", s.index, e)
 
@@ -711,10 +856,16 @@ def main() -> int:
     log.info("尺寸: %s m,置中點: %s", tile_size.tolist(), centroid.tolist())
 
     # Stage 2+3: 逐子圖幅簡化 + 匯出 GLB
-    log.info("=== 逐子圖幅轉換為 .glb 分塊 ===")
+    # v2.2.14: 自適應每分塊預算 — 絕不丟棄任何分塊。僅以簡化控制大小。
+    #   remaining_budget / remaining_chunks 讓所有分塊都能產出;若早期分塊偏大,
+    #   後期分塊目標自動縮小(更激進簡化)。不再因超預算而 break 中止。
+    log.info("=== 逐子圖幅轉換為 .glb 分塊(永不丟棄分塊)===")
     chunks: list[ChunkRecord] = []
     total_bytes = 0
     total_tris = 0
+    n_chunks = len(subtiles)
+    remaining_budget = max_total_bytes
+    remaining_chunks = n_chunks
 
     # 網格座標正規化(用於 manifest 的 grid_x/grid_y)
     min_tx = min(s.tile_x for s in subtiles)
@@ -731,25 +882,39 @@ def main() -> int:
         obj_paths = [p for p in obj_paths if p.exists()]
         if not obj_paths:
             log.warning("  跳過(無 OBJ)")
+            remaining_chunks -= 1
             continue
+
+        # 自適應每分塊目標:確保剩餘分塊都能產出(8% 安全餘裕)
+        if remaining_chunks > 0:
+            avg_target = int(remaining_budget / remaining_chunks * 0.92)
+        else:
+            avg_target = max_chunk_bytes
+        target = min(max_chunk_bytes, max(500_000, avg_target))  # 下限 0.5MB
+
+        # v2.2.14: 鄰居邊界頂點(OSGB 座標)+ bbox,供 build_chunk_glb 方向性焊接
+        nbr_bv: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+        for n_idx in neighbors_map.get(s.index, []):
+            ns = next((x for x in subtiles if x.index == n_idx), None)
+            if ns and ns.index in boundary_verts_cache:
+                nbr_bv[f"x{ns.tile_x}_y{ns.tile_y}"] = boundary_verts_cache[ns.index]
 
         try:
             cb, ct, bmin, bmax = build_chunk_glb(
                 obj_paths, out_glb,
-                target_bytes=max_chunk_bytes,
+                target_bytes=target,
                 max_texture_px=args.max_texture_px,
                 decimate_threshold=args.decimate_threshold,
                 recenter=centroid,
                 floating_removal=not args.no_floating_removal,
+                neighbor_boundary_verts=nbr_bv if nbr_bv else None,
             )
         except Exception as e:
             log.error("  分塊建置失敗: %s", e)
+            remaining_chunks -= 1
             continue
 
         # 鄰居 ID
-        nbr_ids = [f"x{subtiles[n-1].tile_x}_y{subtiles[n-1].tile_y}"
-                   for n in neighbors_map.get(s.index, [])]
-        # 注意:neighbors_map 的值是 1-based index,要對應回 SubTile
         nbr_ids = []
         for n_idx in neighbors_map.get(s.index, []):
             ns = next((x for x in subtiles if x.index == n_idx), None)
@@ -772,11 +937,14 @@ def main() -> int:
         chunks.append(rec)
         total_bytes += cb
         total_tris += ct
-        log.info("  OK: %.2f MB, %d tris", cb / 1e6, ct)
-
+        remaining_budget = max(0, remaining_budget - cb)
+        remaining_chunks -= 1
+        log.info("  OK: %.2f MB, %d tris (目標 %.2f MB, 剩餘預算 %.1f MB / %d 塊)",
+                 cb / 1e6, ct, target / 1e6, remaining_budget / 1e6, remaining_chunks)
+        # v2.2.14: 不再 break — 禁止丟棄分塊。僅記錄超預算。
         if total_bytes > max_total_bytes:
-            log.error("  總和已超過 %.1f MB 預算(目前 %.1f MB),中止", args.max_total_mb, total_bytes / 1e6)
-            break
+            log.warning("  累計 %.1f MB 已超過 %.1f MB 總預算,後續分塊將更激進簡化(不丟棄)",
+                        total_bytes / 1e6, args.max_total_mb)
 
     # Stage 4: manifest
     manifest = build_manifest(

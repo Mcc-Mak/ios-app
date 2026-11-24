@@ -63,9 +63,10 @@ namespace HKGrid.Streaming
         public bool groundFillEnabled = true;
         [Tooltip("地面填補顏色(中性地面色)")]
         public Color groundFillColor = new Color(0.35f, 0.37f, 0.28f, 1f);
-        [Tooltip("填補面低於實際地面的距離(m)。0.5m = 玩家跌落不超過 0.5m,可踏回;" +
-                 "太小會 z-fighting,太大會困住玩家(stepOffset=0.4)")]
-        public float groundFillBelowOffset = 0.5f;
+        [Tooltip("填補面低於實際地面的距離(m)。v2.2.14: 0.05m — 僅避開 z-fighting," +
+                 "幾乎與真實地面齊平,玩家跨越真實網格↔填補時無跌落差。" +
+                 "舊值 0.5m 會造成 0.5m 跌落(stepOffset=0.6 仍可踏回,但體感差)。")]
+        public float groundFillBelowOffset = 0.05f;
         [Tooltip("每分塊的取樣網格解析度(每邊格子數)。8 = 8×8=64 取樣格," +
                  "150m 分塊約 19m/格。越大越精細但頂點越多")]
         public int groundFillSampleResolution = 8;

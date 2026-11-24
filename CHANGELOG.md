@@ -9,6 +9,45 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.14] - 2026-11-24
+
+### 修正(跨分塊表面撕裂 + 地面填補困住玩家)
+
+**A. 轉換器(`convert_osgb_to_chunks.py`):消除真實網格跨分塊撕裂**
+
+- **`preserveboundary=True`(簡化保留邊界頂點)。** pymeshlab 的
+  `meshing_decimation_quadric_edge_collapse_with_texture` 新增此旗標(首輪 + 第二輪)。
+  禁止簡化碰觸分塊邊界頂點/邊 → 相鄰分塊邊界保持來源位置,消除簡化造成的
+  跨分塊縫隙與錯位(原兩側各自簡化 → 邊界頂點位移不一致 → 撕裂/寬縫)。
+
+- **跨分塊邊界頂點焊接(方向性)。** 預掃描每個子圖幅的邊界頂點 + bbox(OSGB 座標);
+  每分塊建置時,依相鄰方向(東/西/南/北)僅取**共享面**的邊界頂點,以 KDTree 配對
+  (`weld_tolerance=0.5m`),snap 至兩者平均 → 相鄰分塊共享面頂點位置一致,消除裂紋。
+  `preserveboundary` 保證邊界頂點簡化前後不變,故預掃描值 = 最終值,焊接可靠。
+  方向性配對避免非共享面(如頂/底面)污染配對(診斷顯示全 6 面配對僅 0-2% 命中,
+  方向性配對可達 60%+ 命中率)。
+
+- **永不丟棄分塊(僅以簡化控制大小)。** 移除 `total_bytes > max_total → break` 中止邏輯;
+  改為自適應每分塊預算 `remaining_budget / remaining_chunks × 0.92`,確保所有分塊都能
+  產出。早期分塊偏大時,後期分塊目標自動縮小(更激進簡化)。1.8GB 來源 → 全部分塊保留。
+
+**B. Unity(`ChunkStreamBootstrapper.cs` / `TouchPlayerController.cs` / `ChunkStreamConfig.cs`):地面填補不再困住玩家**
+
+- **`groundFillBelowOffset` 0.5m → 0.05m。** 舊值使填補面低於真實地面 0.5m,玩家跨入
+  即跌落 0.5m;新值幾乎與真實地面齊平(僅避開 z-fighting),跨越真實網格↔填補無跌落差。
+
+- **`stepOffset` 0.4 → 0.6。** CharacterController 可踏回 0.6m 以下落差,即使殘留小階梯
+  也能爬回(舊 0.4 < 填補 0.5m 落差 → 困住)。
+
+- **坑洞離群值鉗制(`CreateChunkFill`)。** 取樣格 min-Y 若低於鄰居平均超過 8m(攝影測量
+  深坑/天井/雜訊),提升至鄰居平均 → 填補面成為連續可走安全網,不跟隨深坑下陷困住玩家。
+
+### 設計決定(未實作:重疊裙邊 overlap skirt)
+
+- 評估後**不採用**跨分塊重疊裙邊:攝影測量網格的重疊面會 z-fighting(閃爍)。
+  `preserveboundary` + 焊接已能同時消除細裂紋(焊接)與寬縫(preserveboundary 防止
+  簡化開縫),且無 z-fighting 副作用。若測試後仍有殘留間隙,再評估其他方案。
+
 ## [v2.2.13] - 2026-11-24
 
 ### 新增(跳躍功能:SPACE 鍵,0.5s 冷卻,單跳)

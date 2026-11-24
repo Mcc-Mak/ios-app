@@ -134,6 +134,8 @@ namespace HKGrid.Editor
             config.addChunkColliders = true;
             config.forceDoubleSided = true;  // v2.2.5: 雙面渲染(Cull Off)
             config.groundFillEnabled = true;  // v2.2.9: 人工地面填補
+            config.groundFillBelowOffset = 0.05f;  // v2.2.14: 0.5→0.05(填補面齊平真實地面,防跌落困住)
+            config.groundFillSampleResolution = 8;  // v2.2.12: 8×8 取樣
             EditorUtility.SetDirty(config);
 
             // 7. 方向光(若場景內無,讓網格有基本照明)
