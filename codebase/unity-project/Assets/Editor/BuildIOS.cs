@@ -125,7 +125,8 @@ public static class BuildIOS
     /// 由 engine code stripping 移除。link.xml 僅保留 managed 組件,不涵蓋著色器資產。
     ///
     /// 修正:建置前將 glTFast 著色器加入 GraphicsSettings 的 Always Included Shaders
-    /// 清單,確保著色器資產保留於建置。AddAlwaysIncludedShader 為內部方法,以 reflection 呼叫。
+    /// 清單,確保著色器資產保留於建置。直接操作 GraphicsSettings 的序列化屬性
+    /// (m_AlwaysIncludedShaders),跨 Unity 版本穩定。
     /// </summary>
     private static void EnsureGltfFastShadersIncluded()
     {
@@ -138,28 +139,43 @@ public static class BuildIOS
             "glTF/Point"
         };
 
-        var shaderUtilType = System.Type.GetType("UnityEditor.ShaderUtil,UnityEditor");
-        if (shaderUtilType == null)
+        var graphicsSettings = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Object>("ProjectSettings/GraphicsSettings.asset");
+        if (graphicsSettings == null)
         {
-            Debug.LogError("[BuildIOS] 找不到 UnityEditor.ShaderUtil 型別,無法加入 Always Included Shaders");
+            Debug.LogError("[BuildIOS] 找不到 ProjectSettings/GraphicsSettings.asset");
             return;
         }
-        var addMethod = shaderUtilType.GetMethod(
-            "AddAlwaysIncludedShader",
-            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
-        if (addMethod == null)
+
+        var serializedObj = new UnityEditor.SerializedObject(graphicsSettings);
+        var includedShadersProp = serializedObj.FindProperty("m_AlwaysIncludedShaders");
+        if (includedShadersProp == null)
         {
-            Debug.LogError("[BuildIOS] 找不到 ShaderUtil.AddAlwaysIncludedShader 方法");
+            Debug.LogError("[BuildIOS] 找不到 m_AlwaysIncludedShaders 屬性");
             return;
+        }
+
+        // 收集已包含的著色器(避免重複)
+        var existing = new System.Collections.Generic.HashSet<string>();
+        for (int i = 0; i < includedShadersProp.arraySize; i++)
+        {
+            var s = includedShadersProp.GetArrayElementAtIndex(i).objectReferenceValue as Shader;
+            if (s != null) existing.Add(s.name);
         }
 
         int added = 0;
         foreach (var name in shaderNames)
         {
+            if (existing.Contains(name))
+            {
+                Debug.Log($"[BuildIOS] 已存在於 Always Included Shaders: {name}");
+                added++;
+                continue;
+            }
             var shader = Shader.Find(name);
             if (shader != null)
             {
-                addMethod.Invoke(null, new object[] { shader });
+                includedShadersProp.InsertArrayElementAtIndex(includedShadersProp.arraySize);
+                includedShadersProp.GetArrayElementAtIndex(includedShadersProp.arraySize - 1).objectReferenceValue = shader;
                 Debug.Log($"[BuildIOS] 已加入 Always Included Shader: {name}");
                 added++;
             }
@@ -168,7 +184,9 @@ public static class BuildIOS
                 Debug.LogWarning($"[BuildIOS] 找不到著色器(可能未安裝或名稱不同): {name}");
             }
         }
-        Debug.Log($"[BuildIOS] glTFast 著色器保護:已加入 {added}/{shaderNames.Length} 個至 Always Included Shaders");
+
+        serializedObj.ApplyModifiedPropertiesWithoutUndo();
+        Debug.Log($"[BuildIOS] glTFast 著色器保護:已確保 {added}/{shaderNames.Length} 個至 Always Included Shaders");
     }
 
     /// <summary>
