@@ -9,6 +9,31 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.17] - 2026-11-24
+
+### 修正(iOS 地面填補 ArgumentNullException——Standard 著色器被 stripping 移除)
+
+**問題:** v2.2.16 IPA 安裝後,3D 分塊可渲染(glTFast 著色器修正成功),但
+DebugOverlay 顯示:
+
+```
+[ChunkStreamer] 載入 x249_y141 例外: System.ArgumentNullException...
+Parameter Name: shader at HKGrid.Streaming...
+```
+
+根因:`ChunkStreamBootstrapper.cs` 地面填補(GroundFill)材質使用
+`new Material(Shader.Find("Standard"))`。`Standard` 著色器經動態查找,Unity 建置
+管線視為無靜態引用 → engine code stripping 移除 → `Shader.Find("Standard")` 回傳
+null → `new Material(null)` 擲回 `ArgumentNullException: shader`。v2.2.16 的
+`EnsureGltfFastShadersIncluded()` 僅加入 glTFast 著色器,未涵蓋 `Standard`。
+
+**修正:**
+
+- **`BuildIOS.cs`:** `EnsureGltfFastShadersIncluded()` 著色器清單新增 `Standard`。
+- **`ChunkStreamBootstrapper.cs`:** 防禦性著色器查找——若 `Standard` 仍被移除,
+  回退至 `UI/Default` → `Hidden/InternalErrorShader`,避免 `ArgumentNullException`。
+  並以 `HasProperty("_Cull")` 保護 `SetInt` 呼叫(回退著色器可能無此屬性)。
+
 ## [v2.2.16] - 2026-11-24
 
 ### 修正(iOS 藍畫面根因——glTFast 著色器被 stripping 移除)

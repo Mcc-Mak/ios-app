@@ -131,12 +131,15 @@ public static class BuildIOS
     private static void EnsureGltfFastShadersIncluded()
     {
         // glTFast 6.0 內建著色器清單(BuiltInMaterialGenerator 所引用)
+        // v2.2.17: 新增 Standard(ChunkStreamBootstrapper 地面填補材質使用,否則
+        // Shader.Find("Standard") 回傳 null → new Material(null) → ArgumentNullException)
         string[] shaderNames = {
             "glTF/PbrMetallicRoughness",
             "glTF/PbrSpecularGlossiness",
             "glTF/Unlit",
             "glTF/Points",
-            "glTF/Point"
+            "glTF/Point",
+            "Standard"
         };
 
         var graphicsSettings = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Object>("ProjectSettings/GraphicsSettings.asset");

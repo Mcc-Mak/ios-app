@@ -409,9 +409,13 @@ namespace HKGrid.Streaming
             mfComp.sharedMesh = mesh;
 
             var mr = go.AddComponent<MeshRenderer>();
-            var mat = new Material(Shader.Find("Standard"));
+            // v2.2.17: 防禦性著色器查找——若 Standard 被 stripping 移除,回退至內建著色器。
+            // BuildIOS.EnsureGltfFastShadersIncluded() 已將 Standard 加入 Always Included Shaders,
+            // 但此防禦確保即使遺漏也不會擲回 ArgumentNullException。
+            var groundShader = Shader.Find("Standard") ?? Shader.Find("UI/Default") ?? Shader.Find("Hidden/InternalErrorShader");
+            var mat = new Material(groundShader);
             mat.color = config.groundFillColor;
-            mat.SetInt("_Cull", 0);  // 雙面(與分塊一致)
+            if (mat.HasProperty("_Cull")) mat.SetInt("_Cull", 0);  // 雙面(與分塊一致)
             mr.sharedMaterial = mat;
 
             var mc = go.AddComponent<MeshCollider>();
