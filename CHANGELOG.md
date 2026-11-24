@@ -9,6 +9,27 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.13] - 2026-11-24
+
+### 新增(跳躍功能:SPACE 鍵,0.5s 冷卻,單跳)
+
+- **桌面 SPACE 鍵跳躍。** 第一人稱 FPS 標準跳躍:
+  - `jumpSpeed=5` m/s(≈1.3m 高度,g=9.81)
+  - `jumpCooldown=0.5` 秒(著地後需等待才能再跳)
+  - 僅地面狀態(`_isGrounded=true`)可跳;跳躍中不可二段跳
+  - 行動裝置暫不支援(未來可加雙擊搖桿或獨立按鈕)
+
+- **ApplyMovement() 重構:跳躍狀態分離。**
+  - 新增 `_isJumping`/`_isGrounded`/`_lastJumpTime` 狀態
+  - 跳躍中(`_isJumping=true`):彈道運動(重力加速度),**不吸附地面**
+    (舊版每幀地面吸附會取消跳躍)
+  - 著地偵測:向下射線命中 + 正在下降(`verticalVel ≤ 0`)+ 本幀位移穿過地面
+    → 鉗制至地面高度,結束跳躍
+  - 非跳躍時:保留原地面跟隨邏輯(吸附 + 重力下墜)
+
+- **新欄位(Inspector 可調):** `jumpSpeed`(5)、`jumpCooldown`(0.5)。
+  `SetupScene.cs` 無需改動(欄位預設值在 Awake/Inspector 套用)。
+
 ## [v2.2.12] - 2026-11-24
 
 ### 重寫(地面填補:逐塊取樣真實網格頂點,取代 manifest 統計插值)

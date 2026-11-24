@@ -1,7 +1,7 @@
 ﻿# swap_chunks.ps1 — 切換 StreamingAssets/Chunks 在本地高解析度與 IPA 低解析度之間
 #
 # 用法:
-#   .\codebase\scripts\swap_chunks.ps1 local   # 切換至本地高解析度(15B L18 nofloat,204.6MB,1.69M 面)
+#   .\codebase\scripts\swap_chunks.ps1 local   # 切換至本地高解析度(15B L18 nofloat,128px,85.5MB,1.27M 面)
 #   .\codebase\scripts\swap_chunks.ps1 ipa     # 切換至 IPA 低解析度(15B flat,1.29MB,33K 面)
 #   .\codebase\scripts\swap_chunks.ps1 status  # 顯示目前分塊版本與大小(不切換)
 #
@@ -14,7 +14,7 @@ param(
 )
 
 # ── 路徑設定(機器專屬)─────────────────────────────────────────────
-$LocalSrc = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\11-NW-15B_chunks_unity_800mb"
+$LocalSrc = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\11-NW-15B_chunks_unity_100mb"
 $IpaSrc   = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\11-NW-15B_chunks_ipa_2mb"
 $Dst      = "C:\Users\ccmak\Desktop\OpenCode Workplace\ios-app\codebase\unity-project\Assets\StreamingAssets\Chunks"
 
@@ -57,7 +57,7 @@ function Show-Status {
 }
 
 switch ($Mode.ToLower()) {
-    "local"  { Copy-Chunks -Src $LocalSrc -Label "本地高解析度(L18 nofloat)" }
+    "local"  { Copy-Chunks -Src $LocalSrc -Label "本地高解析度(L18 nofloat,128px,85.5MB)" }
     "ipa"    { Copy-Chunks -Src $IpaSrc   -Label "IPA 極低解析度(flat)" }
     "status" { Show-Status }
     default  { Write-Output "未知模式: $Mode(可用:local / ipa / status)" }

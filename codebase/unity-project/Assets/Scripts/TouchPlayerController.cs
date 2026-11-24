@@ -4,7 +4,7 @@
 // 取代 FlyCameraController(僅 WASD + 滑鼠,在 iPhone 無輸入 → 藍屏)。
 //
 // 控制方式:
-//   桌面(Editor/Standalone):WASD 移動 + 滑鼠右鍵拖曳視角 + 滾輪縮放(Shift 衝刺)。
+//   桌面(Editor/Standalone):WASD 移動 + 滑鼠右鍵拖曳視角 + 滾輪縮放(Shift 衝刺)+ SPACE 跳躍。
 //   行動(觸控):
 //     - 左下角固定搖桿(拖曳移動,放開回中)
 //     - 右半屏單指拖曳 → pan/tilt 視角(非反轉:上拖=上看)
@@ -41,6 +41,12 @@ namespace HKGrid.Streaming
         public float moveSpeed = 8.75f;
         [Tooltip("衝刺倍率(桌面 Shift / 行動雙擊搖桿)")]
         public float sprintMultiplier = 2f;
+
+        [Header("跳躍(v2.2.13)")]
+        [Tooltip("跳躍初速(m/s)。5 m/s ≈ 1.3m 高度(g=9.81)。僅地面狀態可跳(單跳,無二段跳)")]
+        public float jumpSpeed = 5f;
+        [Tooltip("跳躍冷卻時間(秒)。著地後需等待此時間才能再跳")]
+        public float jumpCooldown = 0.5f;
 
         [Header("視角(pan/tilt)")]
         public float lookSensitivityTouch = 0.4f;
@@ -119,6 +125,10 @@ namespace HKGrid.Streaming
         // v2.2.8: 握住位置等分塊載入(非下降)。修正:精確座標 spawn 時下降會穿過地面,
         // 之後向下射線永遠找不到地面 → 永久墜落 = 「在網格外」
         private bool _holdUntilGround = false;
+        // v2.2.13: 跳躍狀態
+        private bool _isGrounded = false;       // 目前在地面(可跳)
+        private bool _isJumping = false;        // 跳躍中(上升或下降,尚未著地)
+        private float _lastJumpTime = -Mathf.Infinity;  // 上次跳躍時間(Time.time)
 
         private void Awake()
         {
@@ -231,6 +241,7 @@ namespace HKGrid.Streaming
                     // 地面在下方:正常落地
                     transform.position = new Vector3(worldPos.x, bestDownY + eyeHeight, worldPos.z);
                     _groundEverFound = true; _holdUntilGround = false; _lastGroundY = bestDownY;
+                    _isGrounded = true;  // v2.2.13
                     Debug.Log($"[TouchPlayerController] OnSpawned: 地面在下方 Y={bestDownY:F1}, 攝影機 Y={transform.position.y:F1}");
                 }
                 else if (!float.IsNaN(bestUpY))
@@ -238,6 +249,7 @@ namespace HKGrid.Streaming
                     // 地面在上方:spawn 原在地下,移至地面頂部 + eyeHeight
                     transform.position = new Vector3(worldPos.x, bestUpY + eyeHeight, worldPos.z);
                     _groundEverFound = true; _holdUntilGround = false; _lastGroundY = bestUpY;
+                    _isGrounded = true;  // v2.2.13
                     Debug.Log($"[TouchPlayerController] OnSpawned: 地面在上方 Y={bestUpY:F1}(spawn 原在地下), 攝影機 Y={transform.position.y:F1}");
                 }
                 else
@@ -275,6 +287,7 @@ namespace HKGrid.Streaming
                 transform.position = new Vector3(worldPos.x, bestHit.point.y + eyeHeight, worldPos.z);
                 _lastGroundY = bestHit.point.y;
                 _groundEverFound = true;
+                _isGrounded = true;  // v2.2.13
                 Debug.Log($"[TouchPlayerController] OnSpawned: 地面 Y={bestHit.point.y:F1}, 攝影機 Y={transform.position.y:F1}");
             }
             else
@@ -309,6 +322,20 @@ namespace HKGrid.Streaming
                 Vector3 p = transform.position;
                 Debug.Log($"[TouchPlayerController] 座標: X={p.x:F2}, Y={p.y:F2}, Z={p.z:F2} | " +
                           $"yaw={_yaw:F1}, pitch={_pitch:F1} | FOV={_cam.fieldOfView:F1}");
+            }
+
+            // v2.2.13: 跳躍輸入(桌面 SPACE;行動暫不支援)
+            // 僅地面狀態 + 冷卻結束可跳;單跳(無二段跳)
+            if (!_isMobile && Input.GetKeyDown(KeyCode.Space) && _isGrounded && !_isJumping)
+            {
+                if (Time.time - _lastJumpTime >= jumpCooldown)
+                {
+                    _verticalVel = jumpSpeed;   // 設定向上初速
+                    _isJumping = true;
+                    _isGrounded = false;
+                    _lastJumpTime = Time.time;
+                    Debug.Log($"[TouchPlayerController] 跳躍: verticalVel={_verticalVel:F2} m/s");
+                }
             }
 
             ApplyLook();
@@ -500,7 +527,30 @@ namespace HKGrid.Streaming
             }
 
             float deltaY;
-            if (foundGround)
+            if (_isJumping)
+            {
+                // v2.2.13: 跳躍中——彈道運動(重力),不吸附地面。著地時結束跳躍。
+                _verticalVel += gravity * Time.deltaTime;
+                deltaY = _verticalVel * Time.deltaTime;
+
+                // 著地偵測:向下射線命中且正在下降(verticalVel ≤ 0)
+                if (foundGround && _verticalVel <= 0f)
+                {
+                    float groundY = bestHit.point.y + eyeHeight;
+                    // 若本幀位移會穿過地面,鉗制至地面高度
+                    if (transform.position.y + deltaY <= groundY)
+                    {
+                        deltaY = groundY - transform.position.y;
+                        _verticalVel = 0f;
+                        _isJumping = false;
+                        _isGrounded = true;
+                        _groundEverFound = true;
+                        _holdUntilGround = false;
+                        _lastGroundY = bestHit.point.y;
+                    }
+                }
+            }
+            else if (foundGround)
             {
                 float targetY = bestHit.point.y + eyeHeight;
                 deltaY = targetY - transform.position.y;
@@ -509,6 +559,7 @@ namespace HKGrid.Streaming
                                              maxYSnapPerFrame * Time.deltaTime);
                 _verticalVel = 0f;  // 著地,重設垂直速度
                 _groundEverFound = true;
+                _isGrounded = true;
                 _holdUntilGround = false;  // v2.2.8: 找到地面,解除握住
                 _lastGroundY = bestHit.point.y;  // v2.2.3: 追蹤最後已知地面(穿模重生用)
             }
@@ -518,6 +569,7 @@ namespace HKGrid.Streaming
                 _verticalVel += gravity * Time.deltaTime;
                 if (_verticalVel < -30f) _verticalVel = -30f; // 限速
                 deltaY = _verticalVel * Time.deltaTime;
+                _isGrounded = false;
             }
             else
             {
