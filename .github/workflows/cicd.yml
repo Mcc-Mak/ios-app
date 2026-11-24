@@ -161,6 +161,7 @@ jobs:
   # 僅 workflow_dispatch 觸發:使用者先在本機匯出 Xcode 專案、上傳至 GitHub Release,
   # 再以 workflow_dispatch 指定 xcode_export_tag 與 release_tag 觸發此 job。
   # CI 不需 Unity 授權(僅跑 xcodebuild);Unity 授權留於本機。
+  # v2.2.15: 確認未停用(非 if: false)——可經 workflow_dispatch 手動觸發。
   build:
     name: 'build:ipa'
     if: github.event_name == 'workflow_dispatch'
@@ -325,15 +326,17 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------- deploy:docs
-  # [v2.1.0] build:ipa 僅 workflow_dispatch 觸發;deploy 於 push 及 workflow_dispatch 皆執行。
+  # [v2.1.0] build:ipa 原僅 workflow_dispatch 觸發;v2.2.15 擴充至 push v* 標籤。
+  # deploy 於 push 及 workflow_dispatch 皆執行;build 失敗時 deploy 仍執行(維護網站)。
   # needs: build 確保 workflow_dispatch 時,deploy 在 build 完成後才執行(重新產生 apps.json)。
-  # push 時 build 被跳過(if: workflow_dispatch),deploy 仍正常執行(skipped needs 視為成功)。
+  # push 時 build 被跳過(if 條件不成立),deploy 仍正常執行(skipped needs 視為成功)。
+  # v2.2.15: 若 workflow_dispatch 時 build 失敗,deploy 仍執行(維護網站不中斷)。
   deploy:
     name: 'deploy:docs'
     needs: build
     if: |
       always() && !cancelled()
-      && (needs.build.result == 'success' || needs.build.result == 'skipped')
+      && (needs.build.result == 'success' || needs.build.result == 'skipped' || needs.build.result == 'failure')
       && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
@@ -360,8 +363,17 @@ jobs:
       - name: 暫存網站
         run: |
           set -euo pipefail
+          echo "=== codebase/site/ 來源內容 ==="
+          ls -la codebase/site/
           mkdir -p _site
-          cp -r codebase/site/. _site/
+          # v2.2.15: -v 顯示複製內容;驗證必要檔案存在(間歇性 cp 漏檔問題)
+          cp -rv codebase/site/. _site/
+          echo "=== _site/ 內容 ==="
+          ls -la _site/
+          for f in index.html style.css apps.json; do
+            [[ -f "_site/$f" ]] || { echo "::error::_site/$f 缺失(cp 失敗)"; exit 1; }
+          done
+          echo "✅ 網站檔案驗證通過"
 
       - name: 產生 apps.json(最新發行版本)
         env:

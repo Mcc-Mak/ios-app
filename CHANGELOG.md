@@ -11,12 +11,17 @@
 
 ## [v2.2.15] - 2026-11-24
 
-### 修正(iOS 藍畫面診斷 + IL2CPP stripping 防護 + IPA 匯出流程)
+### 修正(iOS 藍畫面診斷 + IL2CPP stripping 防護 + IPA 分塊注入 + Pages 部署間歇失敗)
 
-**問題:** IPA 安裝至 iPhone 後可開啟(Tuanjie 動畫正常)、搖桿可用,但畫面
-全全藍(僅天空)——3D 分塊未載入。歷次嘗試(~200MB IPA 含 98MB 分塊→卡頓崩潰;
-~60MB IPA→藍畫面)皆失敗。根因:從未設定 `IPA_CHUNKS_SOURCE_DIR`,且 iOS 上
-glTFast 可能因 IL2CPP stripping 靜默失敗,無主控台可見錯誤。
+**問題 A(IPA 藍畫面):** IPA 安裝至 iPhone 後可開啟(Tuanjie 動畫正常)、搖桿可用,
+但畫面全藍(僅天空)——3D 分塊未載入。歷次嘗試(~200MB IPA 含 98MB 分塊→卡頓崩潰;
+~60MB IPA→藍畫面)皆失敗。根因:從未設定 `IPA_CHUNKS_SOURCE_DIR`,且 iOS 上 glTFast
+可能因 IL2CPP stripping 靜默失敗,無主控台可見錯誤。
+
+**問題 B(Pages 部署間歇失敗):** `deploy:docs` 的 `cp -r codebase/site/. _site/`
+間歇性只複製 `apps.json`(漏掉 `index.html` + `style.css`)→ upload-pages-artifact
+僅含 1 檔 → deploy-pages 找不到 `index.html` → "Deployment failed / No artifacts"。
+v2.2.14 及 v2.2.15 皆觸發此問題(v2.2.13 成功為僥倖)。
 
 **A. 螢幕診斷覆蓋層(`DebugOverlay.cs`)**
 
@@ -55,6 +60,17 @@ glTFast 可能因 IL2CPP stripping 靜默失敗,無主控台可見錯誤。
 - 從 v2.2.14 98MB 分塊(preserveboundary + 方向性焊接)重新 decimate 為 2MB
   IPA 版,確保 IPA 也受益於跨分塊撕裂修正(雖然 aggressive decimation 不保留
   邊界,但起始網格已對齊)。
+
+**F. Pages 部署間歇失敗修正(`.github/workflows/cicd.yml`)**
+
+- `deploy:docs` 的「暫存網站」步驟改用 `cp -rv`(verbose)+ 前後 `ls -la` 驗證
+  + 必要檔案存在檢查(`index.html`/`style.css`/`apps.json` 缺失即 `exit 1`)。
+  原因:`cp -r codebase/site/. _site/` 間歇性只複製 `apps.json` → upload-pages-artifact
+  僅含 1 檔 → deploy-pages 找無 `index.html` → "No artifacts named github-pages"。
+- `deploy:docs` 的 `if` 條件新增 `needs.build.result == 'failure'`:workflow_dispatch
+  時若 build:ipa 失敗,deploy 仍執行(維護網站不中斷)。
+- 確認 `build:ipa` 未停用(非 `if: false`):可經 `workflow_dispatch` 手動觸發。
+  僅 `test:sast` 仍停用(`if: false`,待 Stage C 重建)。
 
 ## [v2.2.14] - 2026-11-24
 
