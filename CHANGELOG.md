@@ -9,6 +9,79 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.10] - 2026-11-24
+
+### 修正(地面填補高度錯誤 + 改用插值高度場)
+
+- **地面填補平面高度錯誤 + 假設全區海拔不變(v2.2.9 回歸)。** 兩個問題:
+  1. **高度計算錯誤**:v2.2.9 用 `centroid[2]`(分塊平均高度)取最小值作為
+     平面 Y,但 `centroid_z` 是平均值(約 -45m),遠高於實際最低地形
+     `bbox_min_z`(約 -75m)。平面落在 -50m,比真實地面高出 25m →
+     埋沒大量建物與地面。
+  2. **單一平坦平面**:假設全區海拔不變,以單一 Y 值覆蓋整個區域。但本區
+     分塊間地形高低差達 30m+,平坦平面在低窪區過高(埋沒)、在高地區過低
+     (洞孔可見時落差過大)。
+
+- **改用 IDW 插值高度場網格。** `CreateGroundFill()` 重寫:
+  - 以各分塊 `bbox_min[2]`(最低地形 Z)為控制點(非 centroid)
+  - IDW(power=2)反距離加權插值,產生跟隨地形起伏的高度場
+  - `groundFillGridResolution`(預設 48)=49×49 頂點高度場網格
+  - 每頂點高度 = 插值地形 − `groundFillYOffset`(5m 安全邊距)
+  - MeshCollider 共用網格 → 射線命中跟隨地形(非單一平面)
+  - 雙面材質不變(`_Cull=0`)
+
+- **`ChunkStreamConfig` 新增欄位**: `groundFillGridResolution`(int, 預設 48)。
+
+## [v2.2.9] - 2026-11-24
+
+### 新增(地面洞孔修補 + IPA 極低解析度分塊)
+
+- **人工地面填補(priority 2)。** 攝影測量網格有固有洞孔(無資料區域)。
+  在最低地形下方建立大片地面色平面,修補視覺洞孔 + 防止玩家穿洞墜落:
+  - `ChunkStreamConfig` 新增 `groundFillEnabled/Color/YOffset/Margin`
+  - `ChunkStreamBootstrapper.CreateGroundFill()`:從 manifest 計算最低地形 Y,
+    建立 Quad 平面(世界空間,非 worldRoot 下),雙面材質 + MeshCollider
+  - `groundMask=~0` 射線自動命中平面 → 玩家不穿洞墜落
+  - 洞孔可見時看到地面色(非天空)
+
+- **IPA 極低解析度分塊(2MB)(priority 1b)。** 新增 `decimate_glb.py`
+  腳本:從現有 L18 raw GLB(108.9MB)重新簡化至 **1.29 MB**、33,437 面,不需 osgconv。
+  - v4 流程:合併分塊內所有 mesh → `fast_simplification`(target_count=1500)
+    → 紋理平均色轉平坦 PBR color(不含紋理)→ GLB
+  - 透過 `IPA_CHUNKS_SOURCE_DIR` 注入 IPA 匯出
+
+- **osgconv 安裝 + 800MB Unity 版本轉換完成(priority 1a)。**
+  - 透過 Miniforge3(winget)+ `conda install -c conda-forge openscenegraph` 安裝 osgconv
+    (OSG 3.6.5 + `osgPlugins-3.6.5`),路徑 `miniforge3\Library\bin\osgconv.exe`。
+  - 以 `--lod l18 --no-floating-removal --max-chunk-mb 40 --max-total-mb 800` 重新轉換
+    1.8GB OSGB,產出 20 分塊、**204.6 MB**、1,686,450 面。
+  - 轉換器不會向上取樣;L18 為 OSGB 來源最高 LOD,204.6MB 為此資料可達最高細節
+    (未達 800MB 預算,但已是最高解析度)。`--no-floating-removal` 保留所有表面,
+    減少洞孔。
+  - `swap_chunks.ps1` 的 `$LocalSrc` 改指向 `11-NW-15B_chunks_unity_800mb`。
+
+## [v2.2.8] - 2026-11-24
+
+### 還原(放棄手動地下座標,恢復 manifest 中心自動定位)
+
+- **放棄手動起始座標(-296.90, -65.44, 10.37)。** 該座標 Y=-65.44 經數據分析確認
+  在地表下方 20-37m(鄰近分塊 centroid Y≈-28~-45),spawn 永遠在地下。
+  恢復原始 manifest 中心自動定位:
+  - `useManualStartWorldPos = false`(Awake + SetupScene 強制)
+  - `_useManualSpawnY = false`
+  - `startPitch` -3.2→55、`startYaw` -634.4→0、`defaultFov` 49.5→60(恢復原始)
+  - `moveSpeed` 保留 8.75(1.75x,使用者明確要求)
+  - `eyeHeight` 維持 1.7m
+
+- **manifest 中心已驗證落地。** manifest 中心 world (0.1, -27.6, 2.0),
+  spawn Y+15=-12.6,鄰近地面 Y≈-37.7,spawn 在地面上方 25.1m →
+  向下射線可找到地面 → 落地正常。
+  - 對應 WGS84 約 [22.3319, 114.1871](九龍城區,15B 圖幅中心)
+
+- **保留雙向地面搜尋(安全網)。** OnSpawned 手動路徑與 ApplyMovement 的
+  雙向射線(向下+向上)程式碼保留,但 `_useManualSpawnY=false` 時不啟用。
+  若未來需手動座標可重新啟用。
+
 ## [v2.2.7] - 2026-11-23
 
 ### 修正(起始位置未生效 + eyeHeight/spawn 釐清 + 速度強制套用)

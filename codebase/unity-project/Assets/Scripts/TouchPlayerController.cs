@@ -33,9 +33,9 @@ namespace HKGrid.Streaming
         [Tooltip("起始位置(Unity 世界座標,Y-up。已套用 Z-up→Y-up 旋轉)。預設 = WGS84 [22.3319, 114.1871] 九龍城區")]
         public Vector3 startPosition = new Vector3(947f, 0f, -124f);
         [Tooltip("起始水平視角(Yaw,度)。0=+Z/南,90=+X/東")]
-        public float startYaw = -634.4f;
+        public float startYaw = 0f;
         [Tooltip("起始俯角(Pitch,度)。正值=向下看,看到地面/城市")]
-        public float startPitch = -3.2f;
+        public float startPitch = 55f;
         [Header("移動")]
         [Tooltip("步行速度(m/s)。v2.2.6: 1.75x = 8.75")]
         public float moveSpeed = 8.75f;
@@ -49,7 +49,7 @@ namespace HKGrid.Streaming
         public float maxPitch = 85f;
 
         [Header("縮放(FOV)")]
-        public float defaultFov = 49.5f;
+        public float defaultFov = 60f;
         public float minFov = 25f;     // 放大(zoom in / ADS)
         public float maxFov = 90f;     // 縮小(zoom out)
         public float zoomSpeedTouch = 0.08f;
@@ -114,6 +114,11 @@ namespace HKGrid.Streaming
         private bool _spawned = false;
         // v2.2.3: 最後已知地面 Y(穿模重生用,取代固定 startPosition 重生)
         private float _lastGroundY = 0f;
+        // v2.2.8: 手動起始 Y(精確座標),OnSpawned 直接使用 worldPos.y 不做射線覆寫
+        private bool _useManualSpawnY = false;
+        // v2.2.8: 握住位置等分塊載入(非下降)。修正:精確座標 spawn 時下降會穿過地面,
+        // 之後向下射線永遠找不到地面 → 永久墜落 = 「在網格外」
+        private bool _holdUntilGround = false;
 
         private void Awake()
         {
@@ -121,13 +126,13 @@ namespace HKGrid.Streaming
             _isMobile = Application.isMobilePlatform || Input.touchSupported;
 
             // v2.2.7: 強制套用起始值(覆寫場景序列化的舊值,確保 Editor Play 即時生效)。
-            // 原因:編輯 script field 預設值不會更新已序列化的 Main.unity;除非重跑 SetupScene.Build,
-            // 否則舊場景值會在 Play 時覆寫程式預設。以下值與 SetupScene.Build 保持一致。
-            startYaw = -634.4f;
-            startPitch = -3.2f;
-            defaultFov = 49.5f;
-            eyeHeight = 1.7f;       // v2.2.7: 維持 1.7m(5m 僅為 spawn 上方高度,非眼睛高度)
-            moveSpeed = 8.75f;      // v2.2.6: 1.75x(原 5 m/s)
+            // v2.2.8: 恢復原始自動定位(manifest 中心),放棄手動地下座標。
+            // pitch/FOV 恢復原始值(原值是為手動位置視角設定,不再適用)。
+            startYaw = 0f;
+            startPitch = 55f;
+            defaultFov = 60f;
+            eyeHeight = 1.7f;
+            moveSpeed = 8.75f;      // v2.2.6: 1.75x(原 5 m/s),使用者明確要求保留
 
             _cam.fieldOfView = defaultFov;
             _cam.farClipPlane = 450f;  // v2.2.3: 限制可視距離,不渲染視線外分塊
@@ -155,15 +160,15 @@ namespace HKGrid.Streaming
             _cc.stepOffset = 0.4f;
             _cc.slopeLimit = 75f;            // 攝影測量地形坡度大,放寬
 
-            // 停用 Bootstrapper 的舊式起始位置覆寫(overrideStartPos);改用 v2.2.6 手動世界座標。
-            // v2.2.7: 強制套用 useManualStartWorldPos(場景序列化值可能為舊的 false)。
+            // 停用 Bootstrapper 的舊式起始位置覆寫(overrideStartPos)。
+            // v2.2.8: 恢復原始 manifest 中心自動定位(放棄手動地下座標)。
             var boot = GetComponent<ChunkStreamBootstrapper>();
             if (boot != null)
             {
                 boot.overrideStartPos = false;
-                boot.useManualStartWorldPos = true;
-                boot.manualStartWorldPos = new Vector3(-296.90f, 0f, 10.37f);
+                boot.useManualStartWorldPos = false;
             }
+            _useManualSpawnY = false;
 
             // 起始視角(俯視城市,非水平看天空)
             _yaw = startYaw;
@@ -189,6 +194,61 @@ namespace HKGrid.Streaming
         /// </summary>
         public void OnSpawned(Vector3 worldPos)
         {
+            // v2.2.8: 手動指定起始 Y(精確座標)——直接使用 worldPos.y,不做 +5 偏移與射線覆寫。
+            // 攝影機落在使用者按 L 鍵記錄的精確位置;地面跟隨由 ApplyMovement 每幀射線接手。
+            if (_useManualSpawnY)
+            {
+                // v2.2.9: 使用精確 X/Z,但 Y 由雙向射線找實際地面。
+                // 使用者指定的 Y 可能在地下(記錄時可能已在穿模狀態)。
+                transform.position = worldPos;
+                _verticalVel = 0f;
+                _spawned = true;
+
+                // 向下射線(正常情況:地面在 spawn 下方)
+                Vector3 downOrigin = new Vector3(worldPos.x, worldPos.y + groundRaycastHeight, worldPos.z);
+                int downHits = Physics.RaycastNonAlloc(downOrigin, Vector3.down, _rayHits, groundRaycastLength, groundMask);
+                float bestDownY = float.NaN;
+                float closestDown = float.MaxValue;
+                for (int i = 0; i < downHits; i++)
+                {
+                    if (_rayHits[i].collider == _cc) continue;
+                    if (_rayHits[i].distance < closestDown) { closestDown = _rayHits[i].distance; bestDownY = _rayHits[i].point.y; }
+                }
+
+                // 向上射線(spawn 在地下:地面在 spawn 上方)
+                Vector3 upOrigin = new Vector3(worldPos.x, worldPos.y - groundRaycastHeight, worldPos.z);
+                int upHits = Physics.RaycastNonAlloc(upOrigin, Vector3.up, _rayHits, groundRaycastLength, groundMask);
+                float bestUpY = float.NaN;
+                float closestUp = float.MaxValue;
+                for (int i = 0; i < upHits; i++)
+                {
+                    if (_rayHits[i].collider == _cc) continue;
+                    if (_rayHits[i].distance < closestUp) { closestUp = _rayHits[i].distance; bestUpY = _rayHits[i].point.y; }
+                }
+
+                if (!float.IsNaN(bestDownY))
+                {
+                    // 地面在下方:正常落地
+                    transform.position = new Vector3(worldPos.x, bestDownY + eyeHeight, worldPos.z);
+                    _groundEverFound = true; _holdUntilGround = false; _lastGroundY = bestDownY;
+                    Debug.Log($"[TouchPlayerController] OnSpawned: 地面在下方 Y={bestDownY:F1}, 攝影機 Y={transform.position.y:F1}");
+                }
+                else if (!float.IsNaN(bestUpY))
+                {
+                    // 地面在上方:spawn 原在地下,移至地面頂部 + eyeHeight
+                    transform.position = new Vector3(worldPos.x, bestUpY + eyeHeight, worldPos.z);
+                    _groundEverFound = true; _holdUntilGround = false; _lastGroundY = bestUpY;
+                    Debug.Log($"[TouchPlayerController] OnSpawned: 地面在上方 Y={bestUpY:F1}(spawn 原在地下), 攝影機 Y={transform.position.y:F1}");
+                }
+                else
+                {
+                    // 分塊尚未載入:握住位置,等 ApplyMovement 雙向搜尋找到地面
+                    _groundEverFound = false; _holdUntilGround = true; _lastGroundY = worldPos.y - eyeHeight;
+                    Debug.Log("[TouchPlayerController] OnSpawned: 地面未找到(分塊載入中),握住等待雙向搜尋");
+                }
+                return;
+            }
+
             // 從目標位置上方 5m 開始(v2.2.7: 原 15m;玩家從 5m 高處落下至地面+eyeHeight)
             Vector3 spawnPos = worldPos + Vector3.up * 5f;
             transform.position = spawnPos;
@@ -449,6 +509,7 @@ namespace HKGrid.Streaming
                                              maxYSnapPerFrame * Time.deltaTime);
                 _verticalVel = 0f;  // 著地,重設垂直速度
                 _groundEverFound = true;
+                _holdUntilGround = false;  // v2.2.8: 找到地面,解除握住
                 _lastGroundY = bestHit.point.y;  // v2.2.3: 追蹤最後已知地面(穿模重生用)
             }
             else if (_groundEverFound)
@@ -460,9 +521,52 @@ namespace HKGrid.Streaming
             }
             else
             {
-                // v2.2.4: 首次找到地面前,緩慢下降尋找地面(非懸停)
-                // 原懸停(deltaY=0)導致攝影機停留在高空看天空=藍屏
-                deltaY = -5f * Time.deltaTime;
+                // v2.2.9: 握住位置並雙向搜尋地面(向下未命中時嘗試向上——spawn 可能在地下)。
+                if (_holdUntilGround)
+                {
+                    // 向上射線:若 spawn 在地下,找到頭上地面後向上移至 ground + eyeHeight
+                    Vector3 upOrigin = new Vector3(transform.position.x,
+                        transform.position.y - groundRaycastHeight, transform.position.z);
+                    int upHits = Physics.RaycastNonAlloc(upOrigin, Vector3.up, _rayHits,
+                        groundRaycastLength, groundMask);
+                    RaycastHit bestUpHit = default;
+                    bool foundUp = false;
+                    float closestUp = float.MaxValue;
+                    for (int i = 0; i < upHits; i++)
+                    {
+                        if (_rayHits[i].collider == _cc) continue;
+                        if (_rayHits[i].distance < closestUp)
+                        {
+                            closestUp = _rayHits[i].distance;
+                            bestUpHit = _rayHits[i];
+                            foundUp = true;
+                        }
+                    }
+                    if (foundUp)
+                    {
+                        // 地面在上方:向上移至地面 + eyeHeight
+                        float targetY = bestUpHit.point.y + eyeHeight;
+                        deltaY = Mathf.Clamp(targetY - transform.position.y,
+                            -maxYSnapPerFrame * Time.deltaTime,
+                            maxYSnapPerFrame * Time.deltaTime);
+                        // 接近目標時鎖定為已找到地面
+                        if (Mathf.Abs(targetY - transform.position.y) < 0.5f)
+                        {
+                            _groundEverFound = true;
+                            _holdUntilGround = false;
+                            _lastGroundY = bestUpHit.point.y;
+                        }
+                    }
+                    else
+                    {
+                        deltaY = 0f;  // 握住:等分塊載入
+                    }
+                }
+                else
+                {
+                    // v2.2.4: 高處 spawn 緩慢下降尋找地面(非懸停)
+                    deltaY = -5f * Time.deltaTime;
+                }
             }
 
             Vector3 move = horizontal + Vector3.up * deltaY;

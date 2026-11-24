@@ -1,8 +1,8 @@
-# swap_chunks.ps1 — 切換 StreamingAssets/Chunks 在本地高解析度與 IPA 低解析度之間
+﻿# swap_chunks.ps1 — 切換 StreamingAssets/Chunks 在本地高解析度與 IPA 低解析度之間
 #
 # 用法:
-#   .\codebase\scripts\swap_chunks.ps1 local   # 切換至本地高解析度(15B L17,37.3MB,430K 面)
-#   .\codebase\scripts\swap_chunks.ps1 ipa     # 切換至 IPA 低解析度(15B L16 nofloat,18.7MB)
+#   .\codebase\scripts\swap_chunks.ps1 local   # 切換至本地高解析度(15B L18 nofloat,204.6MB,1.69M 面)
+#   .\codebase\scripts\swap_chunks.ps1 ipa     # 切換至 IPA 低解析度(15B flat,1.29MB,33K 面)
 #   .\codebase\scripts\swap_chunks.ps1 status  # 顯示目前分塊版本與大小(不切換)
 #
 # 注意:來源目錄為機器專屬暫存路徑(C:\Users\ccmak\...\Temp\opencode\csdi\...),
@@ -14,8 +14,8 @@ param(
 )
 
 # ── 路徑設定(機器專屬)─────────────────────────────────────────────
-$LocalSrc = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\11-NW-15B_chunks_l17_80mb"
-$IpaSrc   = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\11-NW-15B_chunks_l16_nofloat"
+$LocalSrc = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\11-NW-15B_chunks_unity_800mb"
+$IpaSrc   = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\11-NW-15B_chunks_ipa_2mb"
 $Dst      = "C:\Users\ccmak\Desktop\OpenCode Workplace\ios-app\codebase\unity-project\Assets\StreamingAssets\Chunks"
 
 function Copy-Chunks {
@@ -47,17 +47,18 @@ function Show-Status {
     $total = ($m.chunks | Measure-Object -Property bytes -Sum).Sum
     $tris  = ($m.chunks | Measure-Object -Property triangles -Sum).Sum
     $sizeMB = [math]::Round($total / 1MB, 1)
-    $ver = if ($sizeMB -lt 25) { "IPA 低解析度(L16 nofloat)" }
+    $ver = if ($sizeMB -lt 25) { "IPA 極低解析度(flat)" }
            elseif ($sizeMB -lt 60) { "本地高解析度(L17)" }
-           else { "未知(可能為 L18, $sizeMB MB)" }
+           elseif ($sizeMB -lt 100) { "L18 raw(中解析度)" }
+           else { "本地高解析度(L18 nofloat)" }
     Write-Output "目前 StreamingAssets/Chunks: $ver"
     Write-Output "   分塊數: $($m.chunks.Count), 總計 $sizeMB MB, $tris 面"
     Write-Output "   has positionOffset: $($null -ne $m.chunks[0].positionOffset)"
 }
 
 switch ($Mode.ToLower()) {
-    "local"  { Copy-Chunks -Src $LocalSrc -Label "本地高解析度(L17)" }
-    "ipa"    { Copy-Chunks -Src $IpaSrc   -Label "IPA 低解析度(L16 nofloat)" }
+    "local"  { Copy-Chunks -Src $LocalSrc -Label "本地高解析度(L18 nofloat)" }
+    "ipa"    { Copy-Chunks -Src $IpaSrc   -Label "IPA 極低解析度(flat)" }
     "status" { Show-Status }
     default  { Write-Output "未知模式: $Mode(可用:local / ipa / status)" }
 }

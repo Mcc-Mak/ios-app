@@ -56,6 +56,20 @@ namespace HKGrid.Streaming
                  "分塊載入後覆寫所有材質的 _Cull=0。輕微增加 GPU 負載。")]
         public bool forceDoubleSided = true;
 
+        [Header("v2.2.9: 地面填補(插值高度場,修補洞孔)")]
+        [Tooltip("啟用後建立插值高度場網格,跟隨地形起伏填補攝影測量洞孔(視覺+碰撞)。" +
+                 "以各分塊 bbox_min[2](最低地形)為控制點,IDW 插值產生高度場。" +
+                 "玩家不會穿過洞孔墜落;洞孔可見時看到地面色而非天空。")]
+        public bool groundFillEnabled = true;
+        [Tooltip("地面填補顏色(中性地面色)")]
+        public Color groundFillColor = new Color(0.35f, 0.37f, 0.28f, 1f);
+        [Tooltip("高度場低於插值地形的距離(m),避免與現有網格相交")]
+        public float groundFillYOffset = 5f;
+        [Tooltip("高度場邊界外擴(m),確保覆蓋整個可視範圍")]
+        public float groundFillMargin = 200f;
+        [Tooltip("高度場網格解析度(每邊格子數;越大越平滑但頂點越多)")]
+        public int groundFillGridResolution = 48;
+
         [Header("除錯")]
         public bool drawChunkGizmos = false;
         public bool logStreamingEvents = false;
