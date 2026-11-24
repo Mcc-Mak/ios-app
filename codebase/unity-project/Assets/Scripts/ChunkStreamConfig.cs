@@ -56,19 +56,19 @@ namespace HKGrid.Streaming
                  "分塊載入後覆寫所有材質的 _Cull=0。輕微增加 GPU 負載。")]
         public bool forceDoubleSided = true;
 
-        [Header("v2.2.9: 地面填補(插值高度場,修補洞孔)")]
-        [Tooltip("啟用後建立插值高度場網格,跟隨地形起伏填補攝影測量洞孔(視覺+碰撞)。" +
-                 "以各分塊 bbox_min[2](最低地形)為控制點,IDW 插值產生高度場。" +
-                 "玩家不會穿過洞孔墜落;洞孔可見時看到地面色而非天空。")]
+        [Header("v2.2.12: 地面填補(逐塊取樣真實網格頂點)")]
+        [Tooltip("啟用後,每個分塊載入時取樣其真實網格頂點,建立緊貼地形下方的高度場," +
+                 "填補攝影測量洞孔(視覺+碰撞)。填補面 = 當地實際地面 - belowOffset," +
+                 "不會過高(埋沒建物)或過低(深坑困住玩家)。")]
         public bool groundFillEnabled = true;
         [Tooltip("地面填補顏色(中性地面色)")]
         public Color groundFillColor = new Color(0.35f, 0.37f, 0.28f, 1f);
-        [Tooltip("高度場低於插值地形的距離(m),避免與現有網格相交")]
-        public float groundFillYOffset = 5f;
-        [Tooltip("高度場邊界外擴(m),確保覆蓋整個可視範圍")]
-        public float groundFillMargin = 200f;
-        [Tooltip("高度場網格解析度(每邊格子數;越大越平滑但頂點越多)")]
-        public int groundFillGridResolution = 48;
+        [Tooltip("填補面低於實際地面的距離(m)。0.5m = 玩家跌落不超過 0.5m,可踏回;" +
+                 "太小會 z-fighting,太大會困住玩家(stepOffset=0.4)")]
+        public float groundFillBelowOffset = 0.5f;
+        [Tooltip("每分塊的取樣網格解析度(每邊格子數)。8 = 8×8=64 取樣格," +
+                 "150m 分塊約 19m/格。越大越精細但頂點越多")]
+        public int groundFillSampleResolution = 8;
 
         [Header("除錯")]
         public bool drawChunkGizmos = false;

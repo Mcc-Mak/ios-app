@@ -46,6 +46,11 @@ namespace HKGrid.Streaming
         public int LoadedCount => _loaded.Count;
         public int LoadingCount => _loading.Count;
 
+        /// <summary>v2.2.12: 分塊載入完成時觸發(網格+碰撞器已就緒)。用於逐塊建立地面填補。</summary>
+        public event Action<ChunkRecord, GameObject> OnChunkLoaded;
+        /// <summary>v2.2.12: 分塊卸載前觸發。用於清理對應的地面填補網格。</summary>
+        public event Action<string> OnChunkUnloaded;
+
         public ChunkStreamer(ChunkManifest manifest, ChunkStreamConfig config,
                              Transform worldRoot, Camera camera,
                              IDeferAgent deferAgent = null, ConsoleLogger logger = null)
@@ -188,6 +193,9 @@ namespace HKGrid.Streaming
                     centroidLocal = rec.CentroidVector,
                     boundingRadius = rec.BoundingRadius,
                 };
+
+                // v2.2.12: 通知訂閱者(Bootstrapper 建立逐塊地面填補)
+                OnChunkLoaded?.Invoke(rec, chunkGo);
             }
             catch (Exception e)
             {
@@ -202,6 +210,8 @@ namespace HKGrid.Streaming
         private void UnloadChunk(string id)
         {
             if (!_loaded.TryGetValue(id, out var c)) return;
+            // v2.2.12: 通知訂閱者清理地面填補(在銷毀前)
+            OnChunkUnloaded?.Invoke(id);
             // 銷毀 GameObject(釋放 mesh/texture GPU 資源)
             if (c.gameObject != null)
                 UnityEngine.Object.Destroy(c.gameObject);

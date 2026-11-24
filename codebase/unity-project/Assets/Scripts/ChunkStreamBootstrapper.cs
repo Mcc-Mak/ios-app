@@ -41,6 +41,8 @@ namespace HKGrid.Streaming
         private ChunkStreamer _streamer;
         private Transform _worldRoot;
         private bool _ready;
+        // v2.2.12: 逐塊地面填補(chunk id → fill GameObject)
+        private readonly Dictionary<string, GameObject> _chunkFills = new Dictionary<string, GameObject>();
 
         private void Awake()
         {
@@ -109,6 +111,10 @@ namespace HKGrid.Streaming
 
                 _streamer = new ChunkStreamer(manifest, config, _worldRoot, camera);
 
+                // v2.2.12: 訂閱分塊載入/卸載事件,逐塊建立地面填補(取樣真實網格頂點)
+                _streamer.OnChunkLoaded += OnChunkLoaded;
+                _streamer.OnChunkUnloaded += OnChunkUnloaded;
+
                 // ── v2.2.3: 從 manifest 自動推導起始位置(不再硬編)──
                 // 單圖幅(15B-only)manifest 原點 = 15B centroid;多圖幅(merged)原點 = 15A centroid。
                 // 硬編 startPosition=(947,0,-124) 僅對多圖幅正確;單圖幅時攝影機落在圖幅外 → 無分塊 → 墜落。
@@ -163,167 +169,179 @@ namespace HKGrid.Streaming
                 RenderSettings.fogEndDistance = config.cameraFarClip;             // ~450m
                 RenderSettings.fogColor = camera.backgroundColor;  // 與天色一致
 
-                // v2.2.9: 人工地面填補(修補攝影測量洞孔)
-                CreateGroundFill(manifest);
-
                 _ready = true;
             }
         }
 
-        /// <summary>
-        /// 人工地面填補——以雙線性插值(bilinear)高度場網格跟隨地形起伏,修補攝影測量洞孔。
-        ///
-        /// 版本演進:
-        ///   v2.2.9:  單一平坦平面(Quad),用 min(centroid_z)。bug:平面過高埋沒建物。
-        ///   v2.2.10: IDW 插值 + bbox_min_z。bug:IDW 在深淺分塊間插值可產生
-        ///            高於當地地形地板的值 → 填補面在玩家上方 → 「地面變天空」。
-        ///   v2.2.11: 雙線性插值(分塊 grid 規則排列)+ 逐頂點鉗制。
-        ///            每個頂點高度 = min(雙線性插值, 所在分塊 bbox_min_z) - offset。
-        ///            「有數據的位置不另創高度」= 鉗制確保填補永遠 ≤ 當地地形地板。
-        ///
-        /// 原理:
-        ///   - 分塊在 grid_x/grid_y 上規則排列(5×4),適用雙線性插值(表面擬合)。
-        ///   - 控制點 = 各分塊 bbox_min[2](最低地形 Z=地板)。
-        ///   - 雙線性插值在分塊間平滑過渡(表面擬合),但逐頂點鉗制至所在分塊的
-        ///     bbox_min[2] - offset,確保填補永不高於當地地形地板 → 永不在玩家上方。
-        ///   - 邊界外(margin)無分塊包含時,僅用雙線性插值(不鉗制)。
-        ///
-        /// 網格有 MeshCollider(地面跟隨射線命中,玩家不穿洞墜落)+
-        /// 地面色材質(洞孔可見時看到地面色而非天空)。
-        /// 在世界空間(非 worldRoot 下,避免 Z-up→Y-up 旋轉)。
-        /// </summary>
-        private void CreateGroundFill(ChunkManifest manifest)
+        // ════════════════════════════════════════════════════════════════
+        // v2.2.12: 逐塊地面填補——取樣真實網格頂點,緊貼地形下方
+        // ════════════════════════════════════════════════════════════════
+        // 版本演進:
+        //   v2.2.9:  單一平坦平面(Quad),用 min(centroid_z)。bug:過高埋沒建物。
+        //   v2.2.10: IDW 插值 + bbox_min_z。bug:插值高於地形地板 → 「地面變天空」。
+        //   v2.2.11: 雙線性插值 + 鉗制 bbox_min。bug:bbox_min 是全分塊最低點,
+        //            分塊內地形高低差達 50-140m → 填補面在山頂下方 100m+ → 深坑困住玩家。
+        //   v2.2.12: 逐塊取樣真實網格頂點。每分塊載入時,收集其所有 mesh 頂點
+        //            (世界座標),按 (X,Z) 分格取每格最低 Y(=地面,非屋頂),
+        //            空格(洞孔)由鄰居插值。填補面 = 地面Y - belowOffset(0.5m)。
+        //            「有數據的位置不另創高度」= 填補面緊貼真實地面下方,不過高不過低。
+
+        /// <summary>分塊載入完成:取樣真實網格建立逐塊地面填補。</summary>
+        private void OnChunkLoaded(ChunkRecord rec, GameObject chunkGo)
         {
-            if (!config.groundFillEnabled || manifest.chunks == null || manifest.chunks.Count == 0)
-                return;
+            if (!config.groundFillEnabled) return;
+            CreateChunkFill(rec, chunkGo);
+        }
 
-            // ── 1. 建立分塊 grid 查詢表 + 收集邊界 ──
-            // gridMap[(grid_x, grid_y)] = ChunkRecord,用於雙線性插值 + 鉗制
-            var gridMap = new Dictionary<(int gx, int gy), ChunkRecord>();
-            int maxGx = 0, maxGy = 0;
-            float minX = float.MaxValue, maxX = float.MinValue;
-            float minY = float.MaxValue, maxY = float.MinValue;
-
-            foreach (var c in manifest.chunks)
+        /// <summary>分塊卸載:銷毀對應的地面填補。</summary>
+        private void OnChunkUnloaded(string chunkId)
+        {
+            if (_chunkFills.TryGetValue(chunkId, out var fill))
             {
-                if (c.grid_x > maxGx) maxGx = c.grid_x;
-                if (c.grid_y > maxGy) maxGy = c.grid_y;
-                gridMap[(c.grid_x, c.grid_y)] = c;
+                if (fill != null) Destroy(fill);
+                _chunkFills.Remove(chunkId);
+            }
+        }
 
-                if (c.bbox_min != null && c.bbox_min.Length >= 2)
+        /// <summary>
+        /// 逐塊地面填補:取樣分塊的真實 mesh 頂點(世界座標),按 (X,Z) 分格,
+        /// 每格取最低 Y(=地面高度),建立緊貼地面下方 belowOffset 的高度場網格。
+        /// 空格(攝影測量洞孔)由鄰居插值填補。
+        /// 在世界空間(非 worldRoot 下),有 MeshCollider + 雙面地面色材質。
+        /// </summary>
+        private void CreateChunkFill(ChunkRecord rec, GameObject chunkGo)
+        {
+            int res = Mathf.Max(2, config.groundFillSampleResolution);
+
+            // ── 1. 收集所有 mesh 頂點(世界座標)+ 計算覆蓋範圍 ──
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minZ = float.MaxValue, maxZ = float.MinValue;
+            float overallMinY = float.MaxValue;
+            var verts = new List<Vector3>();
+
+            foreach (var mf in chunkGo.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.sharedMesh == null || mf.sharedMesh.vertexCount == 0) continue;
+                var l2w = mf.transform.localToWorldMatrix;
+                foreach (var v in mf.sharedMesh.vertices)
                 {
-                    if (c.bbox_min[0] < minX) minX = c.bbox_min[0];
-                    if (c.bbox_min[1] < minY) minY = c.bbox_min[1];
-                }
-                if (c.bbox_max != null && c.bbox_max.Length >= 2)
-                {
-                    if (c.bbox_max[0] > maxX) maxX = c.bbox_max[0];
-                    if (c.bbox_max[1] > maxY) maxY = c.bbox_max[1];
+                    var wv = l2w.MultiplyPoint(v);
+                    verts.Add(wv);
+                    if (wv.x < minX) minX = wv.x;
+                    if (wv.x > maxX) maxX = wv.x;
+                    if (wv.z < minZ) minZ = wv.z;
+                    if (wv.z > maxZ) maxZ = wv.z;
+                    if (wv.y < overallMinY) overallMinY = wv.y;
                 }
             }
-            int cols = maxGx + 1;  // grid_x: 0..maxGx
-            int rows = maxGy + 1;  // grid_y: 0..maxGy
+            if (verts.Count == 0) return;
 
-            // ── 2. 建立雙線性插值用的高度 grid + centroid 座標 grid ──
-            // elevGrid[gx, gy] = 該分塊 bbox_min[2](地板高度)
-            // centX[gx], centY[gy] = 該行/列的 centroid 座標(用於插值定位)
-            var elevGrid = new float[cols, rows];
-            var centX = new float[cols];
-            var centY = new float[rows];
-            var hasData = new bool[cols, rows];
-            for (int gx = 0; gx < cols; gx++)
+            float sizeX = maxX - minX;
+            float sizeZ = maxZ - minZ;
+            if (sizeX < 0.1f || sizeZ < 0.1f) return;
+
+            // ── 2. 分格:每格取最低 Y(=地面,非屋頂)──
+            var groundY = new float[res, res];
+            var hasData = new bool[res, res];
+            for (int i = 0; i < res; i++)
+                for (int j = 0; j < res; j++)
+                    groundY[i, j] = float.MaxValue;
+
+            foreach (var v in verts)
             {
-                for (int gy = 0; gy < rows; gy++)
+                int gi = Mathf.Clamp(Mathf.FloorToInt((v.x - minX) / sizeX * res), 0, res - 1);
+                int gj = Mathf.Clamp(Mathf.FloorToInt((v.z - minZ) / sizeZ * res), 0, res - 1);
+                if (v.y < groundY[gi, gj])
                 {
-                    if (gridMap.TryGetValue((gx, gy), out var c))
+                    groundY[gi, gj] = v.y;
+                    hasData[gi, gj] = true;
+                }
+            }
+
+            // ── 3. 空格(洞孔)由鄰居插值填補,多次傳播 ──
+            for (int pass = 0; pass < 3; pass++)
+            {
+                bool changed = false;
+                for (int i = 0; i < res; i++)
+                {
+                    for (int j = 0; j < res; j++)
                     {
-                        float elev = float.MaxValue;
-                        if (c.bbox_min != null && c.bbox_min.Length >= 3)
-                            elev = c.bbox_min[2];
-                        else if (c.centroid != null && c.centroid.Length >= 3)
-                            elev = c.centroid[2];
-                        if (elev != float.MaxValue)
+                        if (hasData[i, j]) continue;
+                        float sum = 0f; int count = 0;
+                        for (int di = -1; di <= 1; di++)
                         {
-                            elevGrid[gx, gy] = elev;
-                            hasData[gx, gy] = true;
+                            for (int dj = -1; dj <= 1; dj++)
+                            {
+                                if (di == 0 && dj == 0) continue;
+                                int ni = i + di, nj = j + dj;
+                                if (ni >= 0 && ni < res && nj >= 0 && nj < res && hasData[ni, nj])
+                                {
+                                    sum += groundY[ni, nj];
+                                    count++;
+                                }
+                            }
                         }
-                        if (c.centroid != null && c.centroid.Length >= 2)
+                        if (count > 0)
                         {
-                            centX[gx] = c.centroid[0];
-                            centY[gy] = c.centroid[1];
+                            groundY[i, j] = sum / count;
+                            hasData[i, j] = true;
+                            changed = true;
                         }
                     }
                 }
+                if (!changed) break;
             }
+            // 仍空的格用全分塊最低 Y(極端情況)
+            for (int i = 0; i < res; i++)
+                for (int j = 0; j < res; j++)
+                    if (!hasData[i, j]) groundY[i, j] = overallMinY;
 
-            // 外擴 margin 確保覆蓋可視範圍
-            minX -= config.groundFillMargin;
-            maxX += config.groundFillMargin;
-            minY -= config.groundFillMargin;
-            maxY += config.groundFillMargin;
-
-            // ── 3. 建立高度場網格 ──
-            int res = Mathf.Max(2, config.groundFillGridResolution);
-            int vCount = (res + 1) * (res + 1);
+            // ── 4. 建立高度場網格(填補面 = 地面Y - belowOffset)──
+            int vCount = res * res;
             var vertices = new Vector3[vCount];
             var uvs = new Vector2[vCount];
-
-            for (int j = 0; j <= res; j++)
-            {
-                for (int i = 0; i <= res; i++)
-                {
-                    int idx = j * (res + 1) + i;
-                    float mx = minX + (maxX - minX) * i / res;
-                    float my = minY + (maxY - minY) * j / res;
-
-                    // (a) 雙線性插值(表面擬合):在分塊 grid 上平滑插值
-                    float interpZ = BilinearSample(elevGrid, hasData, centX, centY,
-                                                    cols, rows, mx, my);
-
-                    // (b) 鉗制:找出包含 (mx, my) 的分塊,確保填補 ≤ 該分塊地板
-                    float floorZ = FindChunkFloor(manifest.chunks, mx, my);
-
-                    // (c) final = min(插值, 地板) - offset
-                    //     有分塊包含時:永不高於地板(「有數據不另創高度」)
-                    //     邊界外無分塊時:僅用插值(不加鉗制)
-                    float baseZ = float.IsNaN(floorZ) ? interpZ : Mathf.Min(interpZ, floorZ);
-                    float mz = baseZ - config.groundFillYOffset;
-
-                    // manifest (X, Y, Z) → Unity world (X, Z, -Y)
-                    vertices[idx] = new Vector3(mx, mz, -my);
-                    uvs[idx] = new Vector2((float)i / res, (float)j / res);
-                }
-            }
-
-            // ── 4. 三角形索引(兩三角/格)──
-            var triangles = new int[res * res * 6];
-            int t = 0;
             for (int j = 0; j < res; j++)
             {
                 for (int i = 0; i < res; i++)
                 {
-                    int v00 = j * (res + 1) + i;
+                    int idx = j * res + i;
+                    float cx = minX + sizeX * (i + 0.5f) / res;
+                    float cz = minZ + sizeZ * (j + 0.5f) / res;
+                    float cy = groundY[i, j] - config.groundFillBelowOffset;
+                    vertices[idx] = new Vector3(cx, cy, cz);
+                    uvs[idx] = new Vector2((float)i / res, (float)j / res);
+                }
+            }
+
+            // ── 5. 三角形索引 ──
+            var triangles = new int[(res - 1) * (res - 1) * 6];
+            int t = 0;
+            for (int j = 0; j < res - 1; j++)
+            {
+                for (int i = 0; i < res - 1; i++)
+                {
+                    int v00 = j * res + i;
                     int v10 = v00 + 1;
-                    int v01 = v00 + (res + 1);
+                    int v01 = v00 + res;
                     int v11 = v01 + 1;
                     triangles[t++] = v00; triangles[t++] = v01; triangles[t++] = v11;
                     triangles[t++] = v00; triangles[t++] = v11; triangles[t++] = v10;
                 }
             }
 
-            // ── 5. 建立 GameObject + Mesh + Collider ──
-            var go = new GameObject("GroundFill");
+            // ── 6. 建立 GameObject + Mesh + Collider ──
+            var go = new GameObject($"GroundFill_{rec.id}");
             go.transform.SetParent(null);
 
-            var mesh = new Mesh { name = "GroundFillMesh" };
+            var mesh = new Mesh { name = $"GroundFill_{rec.id}" };
             mesh.vertices = vertices;
             mesh.uv = uvs;
             mesh.triangles = triangles;
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
 
-            var mf = go.AddComponent<MeshFilter>();
-            mf.sharedMesh = mesh;
+            var mfComp = go.AddComponent<MeshFilter>();
+            mfComp.sharedMesh = mesh;
 
             var mr = go.AddComponent<MeshRenderer>();
             var mat = new Material(Shader.Find("Standard"));
@@ -334,6 +352,8 @@ namespace HKGrid.Streaming
             var mc = go.AddComponent<MeshCollider>();
             mc.sharedMesh = mesh;  // groundMask=~0,射線會命中
 
+            _chunkFills[rec.id] = go;
+
             // 統計
             float minH = float.MaxValue, maxH = float.MinValue;
             foreach (var v in vertices)
@@ -341,125 +361,9 @@ namespace HKGrid.Streaming
                 if (v.y < minH) minH = v.y;
                 if (v.y > maxH) maxH = v.y;
             }
-            Debug.Log($"[Bootstrapper] GroundFill 高度場建立: grid={cols}x{rows}, " +
-                      $"網格={res}x{res}({vCount} 頂點), " +
-                      $"高度範圍={minH:F1}~{maxH:F1}m(偏移 {config.groundFillYOffset}m + 逐頂點鉗制), " +
-                      $"覆蓋={(maxX - minX):F0}x{(maxY - minY):F0}m");
-        }
-
-        /// <summary>
-        /// 雙線性插值(bilinear):在分塊 grid 上,以 centroid 座標為節點,
-        /// 平滑插值出任意 (x, y) 處的地板高度。表面擬合——通過控制點、不超出範圍。
-        /// </summary>
-        private static float BilinearSample(float[,] elevGrid, bool[,] hasData,
-            float[] centX, float[] centY, int cols, int rows, float x, float y)
-        {
-            // 單分塊邊界情況:直接回傳該格值
-            if (cols < 2 || rows < 2)
-                return SampleGrid(elevGrid, hasData, cols, rows, 0, 0);
-
-            // 找出 x 落在哪兩列之間
-            int gi = 0;
-            for (int gx = 0; gx < cols - 1; gx++)
-            {
-                if (x >= centX[gx] && x <= centX[gx + 1]) { gi = gx; break; }
-                if (x < centX[0]) { gi = 0; break; }
-                if (x > centX[cols - 1]) { gi = cols - 2; break; }
-                gi = gx;
-            }
-            // 找出 y 落在哪兩行之間
-            int gj = 0;
-            for (int gy = 0; gy < rows - 1; gy++)
-            {
-                if (y >= centY[gy] && y <= centY[gy + 1]) { gj = gy; break; }
-                if (y < centY[0]) { gj = 0; break; }
-                if (y > centY[rows - 1]) { gj = rows - 2; break; }
-                gj = gy;
-            }
-
-            // 四個角的值(缺失資料時用鄰近角填充)
-            float z00 = SampleGrid(elevGrid, hasData, cols, rows, gi,     gj);
-            float z10 = SampleGrid(elevGrid, hasData, cols, rows, gi + 1, gj);
-            float z01 = SampleGrid(elevGrid, hasData, cols, rows, gi,     gj + 1);
-            float z11 = SampleGrid(elevGrid, hasData, cols, rows, gi + 1, gj + 1);
-
-            // 插值比例(防除零)
-            float dx = centX[gi + 1] - centX[gi];
-            float dy = centY[gj + 1] - centY[gj];
-            float fu = Mathf.Approximately(dx, 0f) ? 0f : Mathf.Clamp01((x - centX[gi]) / dx);
-            float fv = Mathf.Approximately(dy, 0f) ? 0f : Mathf.Clamp01((y - centY[gj]) / dy);
-
-            // 雙線性: (1-fu)(1-fv)z00 + fu(1-fv)z10 + (1-fu)fv z01 + fu fv z11
-            return (1f - fu) * (1f - fv) * z00
-                 + fu * (1f - fv) * z10
-                 + (1f - fu) * fv * z01
-                 + fu * fv * z11;
-        }
-
-        /// <summary>安全取 grid 值(越界或缺失時用鄰近有效值)。</summary>
-        private static float SampleGrid(float[,] elevGrid, bool[,] hasData,
-            int cols, int rows, int gx, int gy)
-        {
-            gx = Mathf.Clamp(gx, 0, cols - 1);
-            gy = Mathf.Clamp(gy, 0, rows - 1);
-            if (hasData[gx, gy]) return elevGrid[gx, gy];
-            // 缺失:搜尋最近的有效格(最多 8 鄰)
-            for (int r = 1; r <= 2; r++)
-            {
-                for (int dy = -r; dy <= r; dy++)
-                {
-                    for (int dx = -r; dx <= r; dx++)
-                    {
-                        int nx = gx + dx, ny = gy + dy;
-                        if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && hasData[nx, ny])
-                            return elevGrid[nx, ny];
-                    }
-                }
-            }
-            return 0f;  // fallback
-        }
-
-        /// <summary>
-        /// 找出包含 (x, y) 的分塊,回傳其 bbox_min[2](地形地板高度)。
-        /// 「有數據的位置不另創高度」——用於鉗制填補面不超過當地地形地板。
-        /// 無分塊包含時回傳 NaN(邊界外,不加鉗制)。
-        /// </summary>
-        private static float FindChunkFloor(List<ChunkRecord> chunks, float x, float y)
-        {
-            // 同時追蹤最近分塊(邊界外用)
-            float nearestDist = float.MaxValue;
-            float nearestFloor = float.NaN;
-
-            foreach (var c in chunks)
-            {
-                if (c.bbox_min == null || c.bbox_min.Length < 2 ||
-                    c.bbox_max == null || c.bbox_max.Length < 2) continue;
-
-                // 精確包含檢查
-                if (x >= c.bbox_min[0] && x <= c.bbox_max[0] &&
-                    y >= c.bbox_min[1] && y <= c.bbox_max[1])
-                {
-                    if (c.bbox_min.Length >= 3) return c.bbox_min[2];
-                    if (c.centroid != null && c.centroid.Length >= 3) return c.centroid[2];
-                    return float.NaN;
-                }
-
-                // 追蹤最近分塊(用 centroid 距離)
-                if (c.centroid != null && c.centroid.Length >= 2)
-                {
-                    float ddx = x - c.centroid[0];
-                    float ddy = y - c.centroid[1];
-                    float d2 = ddx * ddx + ddy * ddy;
-                    if (d2 < nearestDist)
-                    {
-                        nearestDist = d2;
-                        nearestFloor = c.bbox_min != null && c.bbox_min.Length >= 3
-                            ? c.bbox_min[2]
-                            : (c.centroid != null && c.centroid.Length >= 3 ? c.centroid[2] : float.NaN);
-                    }
-                }
-            }
-            return nearestFloor;  // NaN if no data at all
+            Debug.Log($"[Bootstrapper] GroundFill_{rec.id}: {verts.Count} 頂點取樣, " +
+                      $"{res}x{res} 網格, 高度 {minH:F1}~{maxH:F1}m " +
+                      $"(offset {config.groundFillBelowOffset}m), 覆蓋 {sizeX:F0}x{sizeZ:F0}m");
         }
 
         private void Update()
@@ -470,6 +374,12 @@ namespace HKGrid.Streaming
         private void OnDestroy()
         {
             _streamer?.UnloadAll();
+            // v2.2.12: 清理所有逐塊地面填補
+            foreach (var kvp in _chunkFills)
+            {
+                if (kvp.Value != null) Destroy(kvp.Value);
+            }
+            _chunkFills.Clear();
         }
 
         private void OnDrawGizmosSelected()

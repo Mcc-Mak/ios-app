@@ -9,6 +9,42 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.12] - 2026-11-24
+
+### 重寫(地面填補:逐塊取樣真實網格頂點,取代 manifest 統計插值)
+
+- **v2.2.11 雙線性插值 + 鉗制 bbox_min 仍有「地面在地面上方」+「困住玩家」問題。**
+  根因:bbox_min[2] 是整個 150×150m 分塊的最低點,但分塊內地形高低差達
+  50-140m(平均 68m)。填補面在 bbox_min - 5m = 分塊最低點,山頂上的洞孔
+  墜落 100-146m 到填補面 → 深坑,玩家被地形牆困住 = 「困住玩家」;
+  抬頭看到地形在上方 = 「地面在地面上方」。
+
+- **根本問題:manifest 只有分塊級統計(min/max/centroid),無法得知分塊內
+  局部地形高度。** 任何基於 manifest 的插值(IDW/雙線形/鉗制)都無法解決——
+  分塊內地形變化太大。必須取樣**真實載入的網格頂點**。
+
+- **v2.2.12 改為逐塊取樣真實網格頂點。**
+  - `ChunkStreamer` 新增 `OnChunkLoaded`/`OnChunkUnloaded` 事件
+  - 每分塊載入完成時,`ChunkStreamBootstrapper.OnChunkLoaded()` 收集該分塊
+    所有 mesh 頂點(世界座標),按 (X,Z) 分格(8×8),每格取**最低 Y**
+    (=地面高度,非屋頂)
+  - 空格(攝影測量洞孔)= 無頂點 → 由鄰居插值填補(3 次傳播)
+  - 填補面 = 地面Y - `groundFillBelowOffset`(0.5m)
+    - 0.5m < stepOffset(0.4)... 微調:0.5m 足以避免 z-fighting,
+      玩家跌落不超過 0.5m,可踏回(地形邊緣坡度許可時)
+  - 「有數據的位置不另創高度」= 填補面緊貼真實地面下方 0.5m,不過高(埋沒建物)
+    不過低(深坑困住)
+  - 分塊卸載時同步銷毀對應填補網格(`OnChunkUnloaded`)
+
+- **`ChunkStreamConfig` 欄位變更:**
+  - 移除:`groundFillYOffset`(5m)、`groundFillMargin`(200m)、`groundFillGridResolution`(48)
+  - 新增:`groundFillBelowOffset`(0.5m)、`groundFillSampleResolution`(8)
+  - 保留:`groundFillEnabled`、`groundFillColor`
+
+- **移除方法:** `CreateGroundFill`(v2.2.9-11 全域插值)、`BilinearSample`、
+  `SampleGrid`、`FindChunkFloor`。新增:`OnChunkLoaded`、`OnChunkUnloaded`、
+  `CreateChunkFill`。
+
 ## [v2.2.11] - 2026-11-24
 
 ### 修正(地面填補「變天空」——IDW 插值高於地形地板)
