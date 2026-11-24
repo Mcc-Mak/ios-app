@@ -140,7 +140,6 @@ Write-Output "開始時間:$(Get-Date -Format 'HH:mm:ss')"
 
 $argList = @(
     "-batchmode",
-    "-nographics",
     "-projectPath", "`"$ProjectPath`"",
     "-executeMethod", "BuildIOS.Export",
     "-logFile", "`"$UnityLog`"",
@@ -150,7 +149,35 @@ $argList = @(
 Write-Output "命令:Tuanjie.exe $($argList -join ' ')"
 & $TuanjieEditor $argList
 $exitCode = $LASTEXITCODE
-Write-Output "Tuanjie 結束代碼:$exitCode(注意:stderr 雜訊為正常,以產物存在為準)"
+Write-Output "Tuanjie 啟動器結束代碼:$exitCode(注意:stderr 雜訊為正常,以產物存在為準)"
+
+# v2.2.16: Tuanjie.exe 為啟動器,可能立即返回但 Editor 仍在背景執行建置。
+# 等待 Editor 進程結束(最多 15 分鐘),再驗證產物。
+Write-Output "等待 Tuanjie Editor 完成建置(最多 15 分鐘)..."
+$maxWaitSeconds = 900
+$waited = 0
+$editorSeen = $false
+while ($waited -lt $maxWaitSeconds) {
+    $editorProcs = Get-Process -Name "Tuanjie" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -like "*Editor*Tuanjie.exe" }
+    if ($editorProcs) {
+        $editorSeen = $true
+    } elseif ($editorSeen) {
+        # Editor 進程曾存在但已結束 → 建置完成
+        Start-Sleep -Seconds 3  # 等待檔案系統刷新
+        Write-Output "✅ Tuanjie Editor 已結束(等待 $waited 秒)"
+        break
+    }
+    Start-Sleep -Seconds 5
+    $waited += 5
+    if ($waited % 60 -eq 0) {
+        $xcodeprojExists = Test-Path "$XcodeExportDir\*.xcodeproj"
+        Write-Output "  等待中... ${waited}s (Editor running: $([bool]$editorProcs), xcodeproj: $xcodeprojExists)"
+    }
+}
+if ($waited -ge $maxWaitSeconds) {
+    Write-Warning "⚠ 等待逾時($maxWaitSeconds 秒),繼續檢查產物"
+}
 Write-Output "結束時間:$(Get-Date -Format 'HH:mm:ss')"
 
 # ─── 驗證匯出結果 ───────────────────────────────────────────

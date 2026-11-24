@@ -9,6 +9,34 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.16] - 2026-11-24
+
+### 修正(iOS 藍畫面根因——glTFast 著色器被 stripping 移除)
+
+**問題:** v2.2.15 IPA 安裝至 iPhone 後,DebugOverlay 顯示:
+
+```
+ShaderMissing:glTF/PbrMetallicRoughness
+System.NullReferenceException
+GLTFast.Materials.BuiltInMaterialGenerator.GenerateDefaultMaterial
+```
+
+根因:glTFast 著色器(`glTF/PbrMetallicRoughness` 等)經 `Shader.Find()` 動態查詢,
+Unity 建置管線視為無靜態引用 → 由 engine code stripping 移除。`link.xml` 僅保留
+managed 組件(C# 程式碼),**不涵蓋著色器資產**。著色器缺失 → `GenerateDefaultMaterial`
+擲回 `NullReferenceException` → 分塊無法建立材質 → 不渲染 → 藍畫面。
+
+**修正:**
+
+- **`BuildIOS.cs` 新增 `EnsureGltfFastShadersIncluded()`**:建置前將 glTFast 著色器
+  (`glTF/PbrMetallicRoughness`、`glTF/PbrSpecularGlossiness`、`glTF/Unlit`、`glTF/Points`、
+  `glTF/Point`)加入 GraphicsSettings 的 Always Included Shaders 清單。以 reflection 呼叫
+  內部方法 `UnityEditor.ShaderUtil.AddAlwaysIncludedShader`(公開 API 無此功能)。
+- **`export_xcode_project.ps1` 修正 Tuanjie 等待問題**:Tuanjie.exe 為啟動器,`& $TuanjieEditor`
+  立即返回但 Editor 仍在背景執行。新增等待迴圈:偵測 Editor 進程啟動後等待其結束
+  (最多 15 分鐘),再驗證產物。修正 v2.2.15 匯出時誤報「匯出失敗」(實際建置成功但腳本
+  過早檢查)。
+
 ## [v2.2.15] - 2026-11-24
 
 ### 修正(iOS 藍畫面診斷 + IL2CPP stripping 防護 + IPA 分塊注入 + Pages 部署間歇失敗)

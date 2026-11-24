@@ -38,9 +38,10 @@ public static class BuildIOS
     {
         // v2.2.5: 匯出前確保 StreamingAssets/Chunks 為低解析度 IPA 版(若設定 IPA_CHUNKS_SOURCE_DIR)
         CopyIpaChunksIfNeeded();
-        // 先更新場景(確保 TouchPlayerController 等最新元件已烘培至 Main.unity)
+        // 先更新場景(確保 TouchPlayerController 等最新元件已烘焙至 Main.unity)
         HKGrid.Editor.SetupScene.Build();
         ConfigurePlayerSettings();
+        EnsureGltfFastShadersIncluded();  // v2.2.16: 防止 glTFast 著色器被 stripping 移除
         BuildPlayer();
     }
 
@@ -113,6 +114,61 @@ public static class BuildIOS
         Debug.Log("[BuildIOS] 注意:iOS 專屬設定(最低 iOS 版本、build number、相機用途描述)");
         Debug.Log("  請透過 Editor GUI(File → Build Settings → Player Settings)一次性設定,");
         Debug.Log("  會持久保存於 ProjectSettings/ProjectSettings.asset。");
+    }
+
+    /// <summary>
+    /// v2.2.16: 確保 glTFast 著色器包含於建置中。
+    ///
+    /// 問題:iOS 上 glTFast 回報 "ShaderMissing:glTF/PbrMetallicRoughness",
+    /// 隨後 BuiltInMaterialGenerator.GenerateDefaultMaterial 擲回 NullReferenceException。
+    /// 根因:glTFast 著色器經 Shader.Find() 動態查詢,Unity 建置管線視為無引用 →
+    /// 由 engine code stripping 移除。link.xml 僅保留 managed 組件,不涵蓋著色器資產。
+    ///
+    /// 修正:建置前將 glTFast 著色器加入 GraphicsSettings 的 Always Included Shaders
+    /// 清單,確保著色器資產保留於建置。AddAlwaysIncludedShader 為內部方法,以 reflection 呼叫。
+    /// </summary>
+    private static void EnsureGltfFastShadersIncluded()
+    {
+        // glTFast 6.0 內建著色器清單(BuiltInMaterialGenerator 所引用)
+        string[] shaderNames = {
+            "glTF/PbrMetallicRoughness",
+            "glTF/PbrSpecularGlossiness",
+            "glTF/Unlit",
+            "glTF/Points",
+            "glTF/Point"
+        };
+
+        var shaderUtilType = System.Type.GetType("UnityEditor.ShaderUtil,UnityEditor");
+        if (shaderUtilType == null)
+        {
+            Debug.LogError("[BuildIOS] 找不到 UnityEditor.ShaderUtil 型別,無法加入 Always Included Shaders");
+            return;
+        }
+        var addMethod = shaderUtilType.GetMethod(
+            "AddAlwaysIncludedShader",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+        if (addMethod == null)
+        {
+            Debug.LogError("[BuildIOS] 找不到 ShaderUtil.AddAlwaysIncludedShader 方法");
+            return;
+        }
+
+        int added = 0;
+        foreach (var name in shaderNames)
+        {
+            var shader = Shader.Find(name);
+            if (shader != null)
+            {
+                addMethod.Invoke(null, new object[] { shader });
+                Debug.Log($"[BuildIOS] 已加入 Always Included Shader: {name}");
+                added++;
+            }
+            else
+            {
+                Debug.LogWarning($"[BuildIOS] 找不到著色器(可能未安裝或名稱不同): {name}");
+            }
+        }
+        Debug.Log($"[BuildIOS] glTFast 著色器保護:已加入 {added}/{shaderNames.Length} 個至 Always Included Shaders");
     }
 
     /// <summary>
