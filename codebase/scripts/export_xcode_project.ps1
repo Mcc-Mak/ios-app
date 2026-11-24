@@ -1,4 +1,4 @@
-# export_xcode_project.ps1 — 本機 Windows 匯出 iOS Xcode 專案(供 CI macOS 執行 xcodebuild)
+﻿# export_xcode_project.ps1 — 本機 Windows 匯出 iOS Xcode 專案(供 CI macOS 執行 xcodebuild)
 #
 # 用途:Tuanjie 授權為機器綁定,僅本機可用;Windows 無 xcodebuild。
 #       此腳本在本機用 Tuanjie 匯出 Xcode 專案,打包為 tar.gz,
