@@ -404,19 +404,24 @@ jobs:
         with:
           path: _site
 
-      - name: 等待 artifact 可查詢(v2.2.15:規避 API 傳播競態)
+      - name: 等待 artifact 可查詢(v2.2.17:規避 API 傳播競態)
+        # v2.2.15: gh api 可查詢但 deploy-pages 內部 API 仍滯後 → deploy-pages 回報
+        # Found 0 artifact(s)。v2.2.17:偵測到 artifact 後額外等待 5 秒,讓 GitHub
+        # 內部 API 完全傳播,再執行 deploy-pages。
         run: |
-          for i in $(seq 1 15); do
+          for i in $(seq 1 20); do
             count=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
               --jq '[.artifacts[] | select(.name == "github-pages")] | length' 2>/dev/null || echo "0")
             if [ "$count" -gt 0 ]; then
-              echo "✅ github-pages artifact 可查詢($count 個)"
+              echo "✅ github-pages artifact 可查詢($count 個),等待 5 秒讓內部 API 傳播..."
+              sleep 5
+              echo "繼續部署"
               exit 0
             fi
-            echo "等待 artifact 傳播...($i/15)"
+            echo "等待 artifact 傳播...($i/20)"
             sleep 2
           done
-          echo "::error::github-pages artifact 在 30 秒內未可查詢(API 傳播競態)"
+          echo "::error::github-pages artifact 在 40 秒內未可查詢(API 傳播競態)"
           exit 1
         env:
           GH_TOKEN: ${{ github.token }}
