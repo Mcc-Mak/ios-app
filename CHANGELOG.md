@@ -71,6 +71,11 @@ v2.2.14 及 v2.2.15 皆觸發此問題(v2.2.13 成功為僥倖)。
   時若 build:ipa 失敗,deploy 仍執行(維護網站不中斷)。
 - 確認 `build:ipa` 未停用(非 `if: false`):可經 `workflow_dispatch` 手動觸發。
   僅 `test:sast` 仍停用(`if: false`,待 Stage C 重建)。
+- **`deploy` job 新增 `actions: read` 權限。** 根因:deploy job 設有顯式 `permissions:`
+  區塊,未列出的權限一律拒絕。`deploy-pages@v4` 須經 Actions API 查詢 artifact 中繼
+  資料,無 `actions: read` → 「Found 0 artifact(s)」(儘管 upload 成功)。錯誤訊息提及
+  githubstatus.com 為誤導。v2.2.14/v2.2.15 多次觸發;v2.2.13 成功為 GitHub 尚未收緊
+  權限檢查前之僥倖。
 
 ## [v2.2.14] - 2026-11-24
 

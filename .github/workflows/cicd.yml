@@ -341,6 +341,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read     # v2.2.15: deploy-pages@v4 需此權限查詢 artifact 中繼資料(無此權限→「Found 0 artifact(s)」)
       pages: write
       id-token: write   # actions/deploy-pages 必要
     environment:
