@@ -341,7 +341,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read     # v2.2.15: deploy-pages@v4 需此權限查詢 artifact 中繼資料(無此權限→「Found 0 artifact(s)」)
+      actions: read     # v2.2.15: deploy-pages 需此權限查詢 artifact 中繼資料
       pages: write
       id-token: write   # actions/deploy-pages 必要
     environment:
@@ -404,6 +404,23 @@ jobs:
         with:
           path: _site
 
+      - name: 等待 artifact 可查詢(v2.2.15:規避 API 傳播競態)
+        run: |
+          for i in $(seq 1 15); do
+            count=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+              --jq '[.artifacts[] | select(.name == "github-pages")] | length' 2>/dev/null || echo "0")
+            if [ "$count" -gt 0 ]; then
+              echo "✅ github-pages artifact 可查詢($count 個)"
+              exit 0
+            fi
+            echo "等待 artifact 傳播...($i/15)"
+            sleep 2
+          done
+          echo "::error::github-pages artifact 在 30 秒內未可查詢(API 傳播競態)"
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: 部署
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

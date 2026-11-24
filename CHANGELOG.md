@@ -71,11 +71,14 @@ v2.2.14 及 v2.2.15 皆觸發此問題(v2.2.13 成功為僥倖)。
   時若 build:ipa 失敗,deploy 仍執行(維護網站不中斷)。
 - 確認 `build:ipa` 未停用(非 `if: false`):可經 `workflow_dispatch` 手動觸發。
   僅 `test:sast` 仍停用(`if: false`,待 Stage C 重建)。
-- **`deploy` job 新增 `actions: read` 權限。** 根因:deploy job 設有顯式 `permissions:`
-  區塊,未列出的權限一律拒絕。`deploy-pages@v4` 須經 Actions API 查詢 artifact 中繼
-  資料,無 `actions: read` → 「Found 0 artifact(s)」(儘管 upload 成功)。錯誤訊息提及
-  githubstatus.com 為誤導。v2.2.14/v2.2.15 多次觸發;v2.2.13 成功為 GitHub 尚未收緊
-  權限檢查前之僥倖。
+- **`deploy` job 新增 `actions: read` 權限 + artifact 查詢重試。** 根因:deploy job
+  設有顯式 `permissions:` 區塊,未列出的權限一律拒絕。`deploy-pages` 須經 Actions API
+  查詢 artifact 中繼資料,無 `actions: read` → 「Found 0 artifact(s)」(儘管 upload 成功)。
+  錯誤訊息提及 githubstatus.com 為誤導。v2.2.14/v2.2.15 多次觸發;v2.2.13 成功為 GitHub
+  尚未收緊權限檢查前之僥倖。
+  即使補回權限,upload→deploy 間仍有 ~300ms API 傳播競態(upload 成功但 API 尚未可查)。
+  新增「等待 artifact 可查詢」步驟:每 2 秒輪詢一次(最多 30 秒),確認 artifact 可查後
+  才執行 deploy-pages。同時升級 `deploy-pages@v4` → `@v5`(Dependabot 建議)。
 
 ## [v2.2.14] - 2026-11-24
 
