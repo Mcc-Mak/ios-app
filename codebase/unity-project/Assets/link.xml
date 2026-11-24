@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  link.xml — v2.2.15: 防止 IL2CPP managed stripping 移除 glTFast 的 reflection 程式碼。
+  
+  glTFast 6.x 使用 System.Reflection 動態建立材質/元件,IL2CPP (iOS arm64) 在
+  managed stripping 時可能移除這些「看似未使用」的型別,導致 GltfImport.Load() 或
+  InstantiateMainSceneAsync() 在 iOS 上靜默失敗 → 藍畫面(分塊未載入)。
+  
+  即使 PlayerSettings.iPhoneStrippingLevel=0 (Disabled),某些 Unity 版本仍會
+  執行 engine code stripping (stripEngineCode=1)。此 link.xml 確保 glTFast
+  相關型別被保留。
+
+  放置位置:Assets/link.xml (Unity 自動偵測)。
+-->
+<linker>
+  <!-- glTFast 核心組件 -->
+  <assembly fullname="GLTFast" preserve="all" />
+  <assembly fullname="GLTFast.Editor" preserve="all" />
+  
+  <!-- glTFast 依賴的 System 組件(reflection / JSON) -->
+  <assembly fullname="System">
+    <type fullname="System.Reflection.*" preserve="all" />
+  </assembly>
+  
+  <!-- 專案自身腳本(確保 ChunkStreamer/Bootstrapper 不被移除) -->
+  <assembly fullname="Assembly-CSharp">
+    <type fullname="HKGrid.*" preserve="all" />
+  </assembly>
+  
+  <!-- UnityWebRequest(glTFast 透過此載入 file://) -->
+  <assembly fullname="UnityEngine.UnityWebRequestModule" preserve="all" />
+  <assembly fullname="UnityEngine.UnityWebRequestAssetBundleModule" preserve="all" />
+  
+  <!-- JSON 序列化(manifest 載入用 JsonUtility) -->
+  <assembly fullname="UnityEngine.JSONSerializeModule" preserve="all" />
+</linker>

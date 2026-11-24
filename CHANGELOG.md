@@ -9,6 +9,53 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.15] - 2026-11-24
+
+### 修正(iOS 藍畫面診斷 + IL2CPP stripping 防護 + IPA 匯出流程)
+
+**問題:** IPA 安裝至 iPhone 後可開啟(Tuanjie 動畫正常)、搖桿可用,但畫面
+全全藍(僅天空)——3D 分塊未載入。歷次嘗試(~200MB IPA 含 98MB 分塊→卡頓崩潰;
+~60MB IPA→藍畫面)皆失敗。根因:從未設定 `IPA_CHUNKS_SOURCE_DIR`,且 iOS 上
+glTFast 可能因 IL2CPP stripping 靜默失敗,無主控台可見錯誤。
+
+**A. 螢幕診斷覆蓋層(`DebugOverlay.cs`)**
+
+- 新增 `DebugOverlay` MonoBehaviour:捕捉 `Application.logMessageReceived`,
+  在螢幕左上角顯示最近 N 筆 Debug.Log/Warning/Error + manifest 狀態 + 分塊計數
+  + 攝影機位置。iOS 無 Xcode 主控台時,這是唯一的執行時診斷管道。
+- `SetupScene.cs` 自動掛載至攝影機;`ChunkStreamBootstrapper` 報告 manifest
+  載入狀態;`ChunkStreamer` 詳細記錄每塊載入路徑與結果。
+- 錯誤訊息紅色、警告黃色、一般白色;半透明黑底不遮擋視線。
+
+**B. IL2CPP stripping 防護(`Assets/link.xml`)**
+
+- 新增 `link.xml`:`preserve="all"` 保留 glTFast 組件(GLTFast、GLTFast.Editor)、
+  System.Reflection、HKGrid.* 專案腳本、UnityWebRequest、JSONSerialize 模組。
+  即使 `iPhoneStrippingLevel=0`,engine code stripping(`stripEngineCode=1`)
+  仍可能移除 glTFast reflection 程式碼 → `GltfImport.Load()` 靜默失敗 → 藍畫面。
+
+**C. 詳細載入診斷(`ChunkStreamBootstrapper.cs` + `ChunkStreamer.cs`)**
+
+- Bootstrapper 記錄 `streamingAssetsPath`、manifest 完整路徑/URL、`File.Exists`
+  結果、Chunks 目錄檔案數(診斷空目錄/路徑錯誤)。
+- ChunkStreamer 記錄每塊的完整 `file://` 路徑、`gltf.Load()` 結果、
+  `InstantiateMainSceneAsync()` 結果(成功時印 `✅ 分塊就緒`)。
+
+**D. IPA 匯出腳本修正(`codebase/scripts/export_xcode_project.ps1`)**
+
+- 新增 `-ChunksSource` 參數(預設:v2.2.14 2MB IPA 分塊),自動設定
+  `IPA_CHUNKS_SOURCE_DIR` 環境變數。BuildIOS.cs 於匯出前複製指定分塊至
+  StreamingAssets/Chunks,覆寫本地高解析度 Unity 版(98MB)。
+- 舊版未設定此環境變數 → IPA 含錯誤分塊(98MB → OOM,或無分塊 → 藍畫面)。
+- 預檢邏輯調整:設定 `-ChunksSource` 時跳過 StreamingAssets/Chunks 檢查
+  (BuildIOS.cs 會注入);未設定時警告可能含高解析度分塊。
+
+**E. 2MB IPA 分塊重新轉換(v2.2.14 preserveboundary + 焊接)**
+
+- 從 v2.2.14 98MB 分塊(preserveboundary + 方向性焊接)重新 decimate 為 2MB
+  IPA 版,確保 IPA 也受益於跨分塊撕裂修正(雖然 aggressive decimation 不保留
+  邊界,但起始網格已對齊)。
+
 ## [v2.2.14] - 2026-11-24
 
 ### 修正(跨分塊表面撕裂 + 地面填補困住玩家)

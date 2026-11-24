@@ -125,6 +125,15 @@ namespace HKGrid.Editor
             player.joystickLookSpeed = 90f;
             EditorUtility.SetDirty(player);
 
+            // 6b-2. v2.2.15: 掛上 DebugOverlay(iOS 螢幕診斷;Editor 中也可顯示)
+            var dbg = cam.GetComponent<HKGrid.Debugging.DebugOverlay>();
+            if (dbg == null)
+            {
+                dbg = cam.gameObject.AddComponent<HKGrid.Debugging.DebugOverlay>();
+                Debug.Log("[SetupScene] 掛上 DebugOverlay(iOS 螢幕診斷)");
+            }
+            EditorUtility.SetDirty(dbg);
+
             // 6c. 強制更新 Config 值(確保舊資產也套用新參數)
             // v2.2.3: loadRadius 1000→400、unloadRadius 1350→550(限制可視範圍,降低 iPhone 負載)
             config.loadRadius = 400f;

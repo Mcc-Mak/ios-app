@@ -131,6 +131,9 @@ namespace HKGrid.Streaming
             _loading.Add(rec.id);
             string path = GetChunkPath(rec.file);
 
+            // v2.2.15: 詳細載入記錄(iOS 螢幕診斷需要看到路徑與結果)
+            Debug.Log($"[ChunkStreamer] 載入 {rec.id}: {rec.file} ({rec.bytes / 1e6f:F2} MB, {rec.triangles} tris) path={path}");
+
             // ImportSettings:glTFast 6.0 的 ImportSettings 無 generateNormals 欄位
             // (僅有 NodeNameMethod/AnimationMethod/GenerateMipMaps/過濾模式/異向性)。
             // 法線由網格本身提供(CSDI OSGB 已含法線),不需額外產生。
@@ -150,9 +153,11 @@ namespace HKGrid.Streaming
 
                 if (!ok)
                 {
-                    Debug.LogWarning($"[ChunkStreamer] glTF 載入失敗: {rec.file}");
+                    Debug.LogWarning($"[ChunkStreamer] glTF 載入失敗: {rec.file} (gltf.Load returned false)");
                     return;
                 }
+
+                Debug.Log($"[ChunkStreamer] glTF 載入 OK,開始實例化: {rec.file}");
 
                 // 在 worldRoot 下建立分塊容器節點。
                 // GLB 頂點已由轉換器置中(相對各圖幅 origin),容器節點需設於 positionOffset
@@ -167,11 +172,13 @@ namespace HKGrid.Streaming
                 ok = await gltf.InstantiateMainSceneAsync(instantiator);
                 if (!ok)
                 {
-                    Debug.LogWarning($"[ChunkStreamer] glTF 實例化失敗: {rec.file}");
+                    Debug.LogWarning($"[ChunkStreamer] glTF 實例化失敗: {rec.file} (InstantiateMainSceneAsync returned false)");
                     UnityEngine.Object.Destroy(chunkGo);
                     gltf.Dispose();
                     return;
                 }
+
+                Debug.Log($"[ChunkStreamer] ✅ 分塊就緒: {rec.id}");
 
                 // 加入 MeshCollider 供地面跟隨射線(TouchPlayerController)使用
                 if (_config.addChunkColliders)

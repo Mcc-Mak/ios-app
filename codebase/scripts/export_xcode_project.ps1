@@ -10,15 +10,19 @@
 #   3. Tuanjie Editor 未在執行中(批次模式需獨佔)
 #
 # 用法:
-#   .\export_xcode_project.ps1 [-Version "2.1.0"] [-Upload]
+#   .\export_xcode_project.ps1 [-Version "2.2.15"] [-Upload] [-ChunksSource <dir>]
 #
 # 參數:
-#   -Version  — 版本標籤(預設:1.0,對應 IOS_VERSION)
-#   -Upload   — 若設定,自動用 gh CLI 上傳至 GitHub Release(需 gh auth login)
-#
+#   -Version      — 版本標籤(預設:2.2.15,對應 IOS_VERSION)
+#   -Upload       — 若設定,自動用 gh CLI 上傳至 GitHub Release(需 gh auth login)
+#   -ChunksSource — IPA 分塊來源目錄(預設:v2.2.14 2MB IPA 分塊)。
+#                   設定 IPA_CHUNKS_SOURCE_DIR 環境變數,BuildIOS.cs 會於匯出前
+#                   複製至 StreamingAssets/Chunks(覆寫本地高解析度分塊)。
+#                   不設定時沿用 StreamingAssets/Chunks 現有內容(向後相容)。
 param(
-    [string]$Version = "1.0",
-    [switch]$Upload
+    [string]$Version = "2.2.15",
+    [switch]$Upload,
+    [string]$ChunksSource = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\11-NW-15B_chunks_ipa_2mb_v2214"
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,6 +46,22 @@ $env:IOS_MIN_VERSION = "12.0"
 $env:IOS_PRODUCT_NAME = "HKGridVoxel"
 $env:IOS_OUTPUT_DIR = $XcodeExportDir
 
+# v2.2.15: IPA 分塊來源 — BuildIOS.cs 會於匯出前複製至 StreamingAssets/Chunks,
+# 覆寫本地高解析度分塊(98MB Unity 版)。未設定時沿用現有內容(向後相容)。
+if ($ChunksSource -and (Test-Path $ChunksSource)) {
+    $env:IPA_CHUNKS_SOURCE_DIR = $ChunksSource
+    $ipaGlbCount = (Get-ChildItem "$ChunksSource\*.glb" -ErrorAction SilentlyContinue).Count
+    $ipaTotalMB = [math]::Round((Get-ChildItem "$ChunksSource\*.glb" -ErrorAction SilentlyContinue |
+        Measure-Object -Property Length -Sum).Sum / 1MB, 2)
+    Write-Output "  IPA 分塊來源   : $ChunksSource ($ipaGlbCount glbs, $ipaTotalMB MB)"
+} elseif ($ChunksSource) {
+    Write-Warning "⚠ 指定的 -ChunksSource 不存在:$ChunksSource"
+    Write-Warning "  將沿用 StreamingAssets/Chunks 現有內容(可能為高解析度 Unity 版)"
+    $env:IPA_CHUNKS_SOURCE_DIR = $null
+} else {
+    $env:IPA_CHUNKS_SOURCE_DIR = $null
+}
+
 Write-Output "═══════════════════════════════════════════════════════════════"
 Write-Output " export_xcode_project.ps1 — 本機匯出 iOS Xcode 專案"
 Write-Output "═══════════════════════════════════════════════════════════════"
@@ -52,7 +72,6 @@ Write-Output "  Bundle ID       : $($env:IOS_BUNDLE_ID)"
 Write-Output "  Xcode 匯出目錄  : $XcodeExportDir"
 Write-Output "  Tarball         : $TarballPath"
 Write-Output "═══════════════════════════════════════════════════════════════"
-
 # ─── 前置檢查 ───────────────────────────────────────────────
 if (-not (Test-Path $TuanjieEditor)) {
     Write-Error "找不到 Tuanjie Editor: $TuanjieEditor"
@@ -73,14 +92,22 @@ if (-not (Test-Path $IosModule)) {
 }
 
 # 檢查分塊資料
+# v2.2.15: 若設定 IPA_CHUNKS_SOURCE_DIR,BuildIOS.cs 會於匯出前注入分塊,
+# 故不需預先檢查 StreamingAssets/Chunks(可能含高解析度 Unity 版或為空)。
 $ChunksDir = "$ProjectPath\Assets\StreamingAssets\Chunks"
-if (-not (Test-Path "$ChunksDir\manifest.json")) {
+if ($env:IPA_CHUNKS_SOURCE_DIR) {
+    Write-Output "分塊資料:將由 IPA_CHUNKS_SOURCE_DIR 注入(BuildIOS.cs 匯出前複製)"
+    Write-Output "  來源:$($env:IPA_CHUNKS_SOURCE_DIR)"
+} elseif (-not (Test-Path "$ChunksDir\manifest.json")) {
     Write-Error "找不到分塊資料:$ChunksDir\manifest.json"
-    Write-Error "請先執行 fetch_chunks.sh 注入分塊資料,或確認 Stage A 轉換已完成。"
+    Write-Error "請用 -ChunksSource 指定 IPA 分塊來源,或先執行 swap_chunks.ps1 / fetch_chunks.sh 注入分塊。"
     exit 1
+} else {
+    $GlbCount = (Get-ChildItem "$ChunksDir\*.glb" -ErrorAction SilentlyContinue).Count
+    Write-Output "分塊資料(現有 StreamingAssets/Chunks):$GlbCount 個 .glb + manifest.json"
+    Write-Warning "⚠ 未設定 -ChunksSource,將沿用 StreamingAssets/Chunks 現有內容。"
+    Write-Warning "  若含高解析度 Unity 版(98MB),IPA 會過大且 iPhone 可能 OOM。"
 }
-$GlbCount = (Get-ChildItem "$ChunksDir\*.glb" -ErrorAction SilentlyContinue).Count
-Write-Output "分塊資料:$GlbCount 個 .glb + manifest.json"
 
 # 檢查 Tuanjie 是否正在執行
 $tuanjieProcs = Get-Process -Name "Tuanjie" -ErrorAction SilentlyContinue |

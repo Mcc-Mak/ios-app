@@ -43,6 +43,8 @@ namespace HKGrid.Streaming
         private bool _ready;
         // v2.2.12: 逐塊地面填補(chunk id → fill GameObject)
         private readonly Dictionary<string, GameObject> _chunkFills = new Dictionary<string, GameObject>();
+        // v2.2.15: 螢幕診斷覆蓋層(iOS 藍畫面診斷)
+        private HKGrid.Debugging.DebugOverlay _dbg;
 
         private void Awake()
         {
@@ -53,6 +55,9 @@ namespace HKGrid.Streaming
                 return;
             }
             if (camera == null) camera = GetComponent<Camera>();
+
+            // v2.2.15: 取得 DebugOverlay(若有)用於 iOS 螢幕診斷
+            _dbg = GetComponent<HKGrid.Debugging.DebugOverlay>();
 
             // 建立全域 defer agent(TimeBudgetPerFrameDeferAgent)給所有 GltfImport 共用
             var deferGo = new GameObject("glTFast-DeferAgent");
@@ -86,6 +91,28 @@ namespace HKGrid.Streaming
                 Application.streamingAssetsPath, config.chunksRelativePath, config.manifestFileName);
             string url = "file://" + manifestPath.Replace('\\', '/');
 
+            // v2.2.15: 螢幕診斷 — 顯示 manifest 路徑
+            if (_dbg != null) _dbg.SetManifestStatus("manifest 載入中: " + config.chunksRelativePath + "/" + config.manifestFileName);
+            Debug.Log("[Bootstrapper] streamingAssetsPath = " + Application.streamingAssetsPath);
+            Debug.Log("[Bootstrapper] manifest 路徑: " + manifestPath);
+            Debug.Log("[Bootstrapper] manifest URL: " + url);
+            // v2.2.15: 檢查檔案是否存在(Editor/Android 可用 File.Exists;iOS 唯讀封裝亦可)
+            Debug.Log("[Bootstrapper] manifest File.Exists = " + File.Exists(manifestPath));
+            // 列出 Chunks 目錄內容(診斷空目錄)
+            string chunksDir = Path.Combine(Application.streamingAssetsPath, config.chunksRelativePath);
+            if (Directory.Exists(chunksDir))
+            {
+                var files = Directory.GetFiles(chunksDir);
+                Debug.Log("[Bootstrapper] Chunks 目錄有 " + files.Length + " 檔案");
+                if (files.Length > 0)
+                    Debug.Log("[Bootstrapper] 第一個檔案: " + Path.GetFileName(files[0]));
+            }
+            else
+            {
+                Debug.LogError("[Bootstrapper] Chunks 目錄不存在: " + chunksDir);
+                if (_dbg != null) _dbg.SetManifestStatus("Chunks 目錄不存在!");
+            }
+
             // iOS/Editor 透過 UnityWebRequest 讀 manifest(StreamingAssets 在 iOS 為唯讀封裝)
             using (var req = UnityEngine.Networking.UnityWebRequest.Get(url))
             {
@@ -93,12 +120,17 @@ namespace HKGrid.Streaming
                 if (req.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
                 {
                     Debug.LogError($"[Bootstrapper] manifest 載入失敗: {req.error}\n路徑: {manifestPath}");
+                    if (_dbg != null) _dbg.SetManifestStatus("manifest 載入失敗: " + req.error);
                     yield break;
                 }
                 var manifest = JsonUtility.FromJson<ChunkManifest>(req.downloadHandler.text);
                 Debug.Log($"[Bootstrapper] manifest 載入: {manifest.source}, {manifest.chunkCount} 分塊, " +
                           $"{manifest.totalBytes / 1e6f:F2} MB, {manifest.totalTriangles:N0} 三角面");
                 Debug.Log($"[Bootstrapper] 授權: {manifest.attribution}");
+
+                // v2.2.15: 螢幕診斷 — manifest 載入成功
+                if (_dbg != null) _dbg.SetManifestStatus("manifest OK: " + manifest.chunkCount + " 分塊, " +
+                    (manifest.totalBytes / 1e6f).ToString("F1") + " MB");
 
                 // 套用 defer agent frame budget
                 // TimeBudgetPerFrameDeferAgent.frameBudget 為 private 欄位;
@@ -401,7 +433,13 @@ namespace HKGrid.Streaming
 
         private void Update()
         {
-            if (_ready) _streamer.Tick();
+            if (_ready)
+            {
+                _streamer.Tick();
+                // v2.2.15: 螢幕診斷 — 更新分塊計數
+                if (_dbg != null)
+                    _dbg.SetChunkCounts(_streamer.LoadedCount, _streamer.LoadingCount);
+            }
         }
 
         private void OnDestroy()
