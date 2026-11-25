@@ -9,6 +9,27 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.3.0] - 2026-11-25
+
+### 新增(l19 高解析度攝影測量 + 地面無洞修正)
+
+**A. Stage A 高解析度分塊(`11-NW-15B_chunks_l19_nofloat`)**
+
+- 1.8 GB OSGB → **508.19 MB GLB**(20 分塊,全部保留),三角面 **6,079,966**(v2.2.18 的 3.6×)。
+- 採用 **l19 LOD**(最深可完整容納的層級),**無簡化**(decimate-threshold 上限)、**完整紋理**(max-texture-px 99999 不降解析)。
+- **`--no-floating-removal`**:修正 l18+ 地面破洞根因——浮空地面移除在高密度 LOD 過度移除合法表面(平台、低屋頂、高架面)造成地面大洞;停用後地面連續無洞,對齊 v2.2.18 l18 參考集的平滑地面品質。
+- 最大分塊 43.18 MB,遠低於 800 MB 預算。
+
+**B. 文件(`AGENTS.md`)**
+
+- 補登 **l18 地面品質參考集**(`11-NW-15B_chunks_unity_800mb`,204.64 MB / 1,686,450 三角面)為九龍城區「平滑地面、無洞」規範,含完整重現指令。
+- 補登 **floating-removal 規則**:l18 及更深 LOD 一律 `--no-floating-removal`;以及 Stage B「雙平面」症狀根因(破洞區 `overallMinY` 回退導致填充層 Z 不對)。
+
+**C. 雜項**
+
+- `.gitignore` 補 `/6-SE-*.zip`、`/6-SW-*.zip`(新地區圖幅資料,不入庫)。
+- `Main.unity` 補 v2.2.18 場景參數(`showJoystickUI: 0`、`mobileJumpDoubleTapTime: 0.3`)。
+
 ## [v2.2.18] - 2026-11-25
 
 ### 新增(iOS 搖桿隱藏 + iOS 跳躍 + 20MB 保留紋理分塊)

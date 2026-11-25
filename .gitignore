@@ -51,6 +51,9 @@ __pycache__/
 /11-NE-*.zip
 /11-SW-*.zip
 /11-SE-*.zip
+/6-SE-*.zip
+/6-SW-*.zip
+
 # 解壓後的圖幅目錄
 /11-NW-*_osgb_extract/
 /11-NE-*_osgb_extract/
