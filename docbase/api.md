@@ -31,16 +31,31 @@ sequenceDiagram
 | Content-Type | `application/json` |
 | 字元編碼 | UTF-8 |
 | 產生者 | `../codebase/scripts/generate_apps_json.sh`（由 `../.github/workflows/cicd.yml` 的 `deploy:docs` 呼叫） |
-| 更新時機 | 每次發行後（同一次執行的 `release:ipa` → `deploy:docs`）；`main` 的 push 或手動執行時 |
+| 更新時機 | 每次發行後（同一次執行的 `build:ipa` → `deploy:docs`）；`main` 的 push 或手動執行時 |
 
 ### 回應結構（apps.json）
 
 ```json
-{ "name": "ios-app 來源", "subtitle": "...", "description": "...", "website": "...", "iconURL": "",
-  "apps": [{ "name": "ios-app", "bundleIdentifier": "com.example.app", "developerName": "Mcc-Mak",
-    "version": "1.0.0", "versionDate": "2026-11-18T08:00:00Z", "versionDescription": "...",
-    "downloadURL": "https://github.com/Mcc-Mak/ios-app/releases/download/v1.0.0/ios-app-1.0.0.ipa",
-    "size": 1234567, "iconURL": "" }] }
+{
+  "name": "ios-app 來源",
+  "subtitle": "...",
+  "description": "...",
+  "website": "...",
+  "iconURL": "",
+  "apps": [
+    {
+      "name": "ios-app",
+      "bundleIdentifier": "com.example.app",
+      "developerName": "Mcc-Mak",
+      "version": "2.2.18",
+      "versionDate": "2026-11-25T08:00:00Z",
+      "versionDescription": "...",
+      "downloadURL": "https://github.com/Mcc-Mak/ios-app/releases/download/v2.2.18/ios-app-2.2.18.ipa",
+      "size": 28400000,
+      "iconURL": ""
+    }
+  ]
+}
 ```
 
 無發行版本時回傳合法空饋流 `{ ..., "apps": [] }`（入口網站會顯示「尚無發行版本」的說明，並將下載按鈕連到 `releases/latest`）。完整逐欄定義見 `./schema.md`。
@@ -60,16 +75,23 @@ sequenceDiagram
 
 ## 2. manifest.json 契約
 
-由 `../codebase/scripts/build_unsigned_ipa.sh` 從已建置 `Info.plist` 產生，作為 Release 資產上傳。欄位：`appName`、`bundleIdentifier`、`version`、`ipaFileName`、`dsymFileName`（皆 asset-sourced，見 `./schema.md`）。範例：
+由 `../codebase/scripts/build_unity_ipa.sh` 從已建置 `Info.plist` 產生，作為 Release 資產上傳。欄位：`appName`、`bundleIdentifier`、`version`、`ipaFileName`、`dsymFileName`、`ipaSizeBytes`、`minIOSVersion`（皆 asset-sourced，見 `./schema.md`）。範例：
 
 ```json
-{ "appName": "ios-app", "bundleIdentifier": "com.example.app", "version": "1.0.0",
-  "ipaFileName": "ios-app-1.0.0.ipa", "dsymFileName": "ios-app-1.0.0.dSYM.zip" }
+{
+  "appName": "ios-app",
+  "bundleIdentifier": "com.example.app",
+  "version": "2.2.18",
+  "ipaFileName": "ios-app-2.2.18.ipa",
+  "dsymFileName": "ios-app-2.2.18.dSYM.zip",
+  "ipaSizeBytes": 28400000,
+  "minIOSVersion": "14.0"
+}
 ```
 
 ## 3. GitHub Release 資產命名慣例
 
-每個 `v*` semver tag 發行版本固定附三個資產，檔名由 `manifest.json` 決定：
+每個 `release_tag`（`workflow_dispatch` 指定，semver `v*`）發行版本固定附三個資產，檔名由 `manifest.json` 決定：
 
 | 資產 | 檔名模式 | 內容 |
 | --- | --- | --- |

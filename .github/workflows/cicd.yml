@@ -1,17 +1,17 @@
 # cicd.yml — iOS 管線(單一工作流程,多個 job)
 #
-# ⚠ 目前狀態(2026-11-19,v2.1.0 過渡架構):
+# ⚠ 目前狀態(2026-11-25,v2.2.18):
 #   - 本機 Windows 匯出 Xcode 專案 → CI macOS 執行 xcodebuild → .ipa
-#     原因:Tuanjie 授權(.alf)為機器綁定,僅本機可用;Windows 無 xcodebuild。
+#     原因:Tuanjie 授權(.alf)為機器為機器綁定,僅本機可用;Windows 無 xcodebuild。
 #     解法:本機用 Tuanjie 匯出 Xcode 專案(授權在本機),上傳至 GitHub Release,
 #     CI macOS runner 下載後執行 xcodebuild(不需 Unity 授權)。
-#   - 分塊資料(.glb)改以 GitHub Release asset 提供(data-* 標籤,不觸發管線),
-#     建置前由 codebase/scripts/fetch_chunks.sh 下載注入 StreamingAssets/Chunks/。
-#   - test:sast 維持停用(待 Unity 授權續期 + 設定 CI secret 後以 GameCI 重建)。
+#   - 分塊資料(.glb)由本機 export_xcode_project.ps1 -ChunksSource 注入至
+#     StreamingAssets/Chunks/,烘焙進 Xcode 匯出成品(不再使用 fetch_chunks.sh)。
+#   - test:sast 已移除(原 Swift/SceneKit App 已不存在;待 Stage C 以 GameCI 重建)。
 #   - deploy:docs 於 push 及 workflow_dispatch 皆執行,維護入口網站與 apps.json 饋流。
 #
 # 階段順序(每個 job 顯示名稱皆為「*:*」):
-#   test:sast    → [停用] Unity 測試(GameCI unity-test-runner)+ CodeQL C#
+#   test:sast    → [已移除] 原 Swift/SceneKit 測試已不存在;待 Stage C GameCI 重建
 #   build:ipa    → [僅 workflow_dispatch] 下載 Xcode 匯出 → xcodebuild 未簽署封存 →
 #                  .ipa + dSYM + manifest.json → 上傳至目標 release
 #   release:ipa  → [已合併至 build:ipa] build job 直接上傳資產至 release
@@ -64,97 +64,9 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------- test:sast
-  # [停用 v2.0.0] Swift App 已移除,無建置標的;待 Stage C 以 GameCI 重建。
-  test:
-    name: 'test:sast'
-    if: false   # 停用:待 Stage C 重建為 Unity 測試
-    runs-on: macos-latest
-    permissions:
-      contents: read
-      security-events: write   # CodeQL 上傳 SARIF 必要
-    steps:
-      - name: 取出原始碼
-        uses: actions/checkout@v4
-
-      - name: 選擇 Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-
-      - name: 設定腳本為可執行
-        run: chmod +x codebase/scripts/*.sh
-
-      - name: 探索專案與 scheme
-        id: discover
-        run: |
-          set -euo pipefail
-          project=$(find . -maxdepth 4 -name "*.xcodeproj" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" | head -n1 || true)
-          workspace=$(find . -maxdepth 4 -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" -not -path "*/.xcodeproj/project.xcworkspace" | head -n1 || true)
-          args=()
-          if [[ -n "$workspace" ]]; then args=(-workspace "$workspace"); else args=(-project "$project"); fi
-          scheme=$(xcodebuild -list "${args[@]}" 2>/dev/null | awk '/Schemes:/{f=1;next} f&&/^$/{f=0} f{print}' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d' | head -n1 || true)
-          echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
-          echo "已探索 scheme:$scheme"
-
-      - name: 執行單元與 UI 測試(未簽署)
-        if: steps.discover.outputs.scheme != ''
-        run: |
-          set -euo pipefail
-          project=$(find . -maxdepth 4 -name "*.xcodeproj" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" | head -n1 || true)
-          workspace=$(find . -maxdepth 4 -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/DerivedData/*" -not -path "*/build/*" -not -path "*/.xcodeproj/project.xcworkspace" | head -n1 || true)
-          args=()
-          if [[ -n "$workspace" ]]; then args=(-workspace "$workspace"); else args=(-project "$project"); fi
-          # 動態選取可用 iPhone 模擬器(避免特定機型名稱在不同 Xcode 版本不存在)。
-          sim_udid=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin); print(next((dev['udid'] for rt,devs in d['devices'].items() for dev in devs if 'iPhone' in dev.get('name','') and dev.get('isAvailable')), ''))")
-          [[ -n "$sim_udid" ]] || { echo "::error::找不到可用 iPhone 模擬器"; exit 1; }
-          echo "使用模擬器 UDID:$sim_udid"
-          xcrun simctl boot "$sim_udid" 2>/dev/null || true
-          xcodebuild test "${args[@]}" \
-            -scheme "${{ steps.discover.outputs.scheme }}" \
-            -destination "id=$sim_udid" \
-            -enableCodeCoverage YES \
-            -resultBundlePath build/Test.xcresult \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""
-
-      - name: 匯出程式碼覆蓋率報告
-        if: always() && steps.discover.outputs.scheme != ''
-        run: |
-          mkdir -p build/reports
-          if [[ -d build/Test.xcresult ]]; then
-            xcrun xccov view --report --json build/Test.xcresult > build/reports/coverage.json 2>/dev/null || true
-            xcrun xccov view --report build/Test.xcresult > build/reports/coverage.txt 2>/dev/null || true
-          fi
-
-      - name: 上傳測試結果與覆蓋率
-        if: always() && steps.discover.outputs.scheme != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: |
-            build/Test.xcresult
-            build/reports/
-          if-no-files-found: ignore
-          retention-days: 14
-
-      # ---- SAST:CodeQL Swift(需先 init,再讓未簽署建置被儀器化)----
-      # 先上傳測試成品再跑 CodeQL 建置,因為建置腳本會清除 build/ 目錄。
-      - name: 初始化 CodeQL
-        if: ${{ success() && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        uses: github/codeql-action/init@v4
-        with:
-          languages: swift
-          # 停用自動建置 — 我們自行執行未簽署建置(build-mode: manual)。
-          build-mode: manual
-
-      - name: 建置(未簽署,由 CodeQL 觀察)
-        if: ${{ success() && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: ./codebase/scripts/build_unsigned_ipa.sh
-
-      - name: 執行 CodeQL 分析
-        if: ${{ success() && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        uses: github/codeql-action/analyze@v4
-        with:
-          category: '/language:swift'
+  # [停用 v2.0.0] 原 Swift/SceneKit App 已移除,此 job 待 Stage C 以 GameCI +
+  # Unity 授權重建(ADR-010)。舊 Swift 模擬器測試 + CodeQL Swift 分析已刪除
+  # (build_unsigned_ipa.sh 一併移除——無 Swift 建置標的)。
 
   # ----------------------------------------------------------------- build:ipa
   # [v2.1.0] 本機 Windows 匯出 Xcode 專案 → CI macOS 執行 xcodebuild → .ipa

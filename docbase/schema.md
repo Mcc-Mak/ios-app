@@ -31,6 +31,8 @@ classDiagram
     +string version
     +string ipaFileName
     +string dsymFileName
+    +int ipaSizeBytes
+    +string minIOSVersion
   }
   class app_config_json {
     +string name
@@ -81,7 +83,7 @@ classDiagram
 
 ## 2. manifest.json（建置中繼資料）
 
-產生者：`../codebase/scripts/build_unsigned_ipa.sh`，作為 Release 資產上傳。
+產生者：`../codebase/scripts/build_unity_ipa.sh`，作為 Release 資產上傳。
 
 | 名稱 | 類型 | 必填 | 來源 | 說明 |
 | --- | --- | --- | --- | --- |
@@ -90,6 +92,8 @@ classDiagram
 | `version` | string | 是 | asset-sourced | `Info.plist` `CFBundleShortVersionString`。 |
 | `ipaFileName` | string | 是 | runtime | `<appName>-<version>.ipa`。 |
 | `dsymFileName` | string | 是 | runtime | `<appName>-<version>.dSYM.zip`。 |
+| `ipaSizeBytes` | integer | 是 | runtime | `.ipa` 檔案位元組數。 |
+| `minIOSVersion` | string | 是 | asset-sourced | `Info.plist` `MinimumOSVersion`。 |
 
 ## 3. app.config.json（饋流設定）
 

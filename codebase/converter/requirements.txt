@@ -1,5 +1,7 @@
 trimesh>=5.2
 pymeshlab>=2023.12
+fast_simplification>=0.1.7
+scipy>=1.11
 Pillow>=10.0
 numpy>=2.0
 py7zr>=1.0

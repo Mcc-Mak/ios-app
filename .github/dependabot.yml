@@ -1,16 +1,5 @@
 version: 2
 updates:
-  # Swift package dependencies (Package.resolved / SPM).
-  - package-ecosystem: swift
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - swift
-
   # GitHub Actions versions (workflow YAMLs).
   - package-ecosystem: github-actions
     directory: /

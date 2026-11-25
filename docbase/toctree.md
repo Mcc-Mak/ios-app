@@ -44,7 +44,7 @@ flowchart TD
 | schema | apps.json 與 manifest.json 的欄位結構定義。 | [`欄位結構定義`](./schema.md) |
 | erd | 資料模型關係（發行、成品、饋流之間的關聯）。 | [`資料模型關係`](./erd.md) |
 | setup | 本機開發與前置作業說明。 | [`本機開發與前置作業`](./setup.md) |
-| configurations | 建置設定、Xcode scheme、SwiftLint、Dependabot 等組態。 | [`組態設定`](./configurations.md) |
+| configurations | 建置設定、Xcode scheme、Dependabot 等組態。 | [`組態設定`](./configurations.md) |
 | cicd | 單一工作流程的 job 流程、觸發條件與 apps.json 機制詳解。 | [`CI/CD 工作流程`](./cicd.md) |
 | rtm | 需求追溯矩陣（Requirements Traceability Matrix）。 | [`需求追溯矩陣`](./rtm.md) |
 | crm | 交叉參考矩陣（Cross-Reference Matrix）：文件與需求/實作間的對應。 | [`交叉參考矩陣`](./crm.md) |
@@ -60,6 +60,6 @@ flowchart TD
 
 ## 關鍵實作路徑
 
-- 建置腳本：`../codebase/scripts/build_unsigned_ipa.sh`
+- 建置腳本：`../codebase/scripts/build_unity_ipa.sh`（三模式：預設全管線、`UNITY_EXPORT_ONLY=1`、`XCODEBUILD_ONLY=1`）
 - 饋流產生：`../codebase/scripts/generate_apps_json.sh`
-- 單一工作流程：`../.github/workflows/cicd.yml`（`test:sast` → `build:ipa` → `release:ipa` → `deploy:docs`）
+- 單一工作流程：`../.github/workflows/cicd.yml`（`build:ipa` → `deploy:docs`；`test:sast` 已移除、`release:ipa` 已併入 `build:ipa`）

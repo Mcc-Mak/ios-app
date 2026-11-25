@@ -30,6 +30,8 @@ erDiagram
     string version
     string ipaFileName
     string dsymFileName
+    int ipaSizeBytes
+    string minIOSVersion
   }
   AppConfig {
     string name

@@ -9,6 +9,74 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.2.18] - 2026-11-25
+
+### 新增(iOS 搖桿隱藏 + iOS 跳躍 + 20MB 保留紋理分塊)
+
+**A. 搖桿視覺隱藏(`TouchPlayerController.cs`)**
+
+新增 `showJoystickUI` 欄位(預設 `false`)。行動裝置上搖桿底盤與拇指的 Image 顏色設為
+完全透明(alpha 0),輸入仍正常運作(`Input.touches` 由程式碼處理,不依賴 GraphicRaycaster)。
+iOS App 畫面不再顯示搖桿圓圈,但左側拖曳 pan/tilt 功能完整保留。
+
+**B. iOS 跳躍(`TouchPlayerController.cs`)**
+
+新增 `mobileJumpDoubleTapTime` 欄位(預設 `0.3` 秒)。行動裝置上**右側雙擊**(兩次點擊間隔
+≤ `mobileJumpDoubleTapTime`)即排隊跳躍請求(`_mobileJumpQueued`),於下一幀 `Update` 消費。
+跳躍邏輯(地面狀態 + 冷卻 + 單跳)與桌面 SPACE 鍵共用。雙擊偵測後立即重設計時器以防三擊
+誤觸。`0` 停用行動跳躍。
+
+**C. 20MB 保留紋理分塊(`decimate_glb.py` v5 `--textured` 模式)**
+
+新增 `--textured` 模式,取代舊有平面色簡化。流程:
+
+1. `trimesh` 載入 GLB(保留子網格 + UV + 紋理)。
+2. 每個子網格:`fast_simplification` 簡化至目標面數。
+3. `scipy.spatial.cKDTree` 最近鄰(逆距離加權 k=3)將原始 UV 重投影至簡化後頂點
+   (`fast_simplification` 不保留 UV)。
+4. 紋理降解析度至 `--texture-size`(預設 128px)。
+5. 合併子網格 → 匯出 GLB。
+
+**不需 pymeshlab** —— 先前嘗試以 pymeshlab 的 `meshing_decimation_quadric_edge_collapse_with_textures`
+保留 UV,但:(a) 該 filter 需 per-vertex UV,而 CSDI 網格為 per-wedge UV(濾鏡不存在);
+(b) pymeshlab 無法匯出 `.glb`(「Unknown format for save: glb」);(c) pymeshlab 亦無法
+匯出含紋理的 `.obj`(image I/O plugin 缺失)。trimesh 純路徑完全規避這些限制。
+
+轉換結果:`11-NW-15B_chunks_unity_100mb_v2214`(102.7 MB,1,581,960 面,20 分塊)→
+`11-NW-15B_chunks_ipa_20mb_v2218`(22.5 MB,261,948 面,**20 分塊全保留**)。每塊含
+UV + 128×128 紋理,遠優於 v2.2.14 的 2MB 平面色版本。
+
+**符合硬性約束:** 1.8 GB OSGB 轉換保留所有分塊,僅進行簡化,不丟棄任何分塊。
+
+**D. 移除死碼與過時檔案**
+
+清除已不存在的 Swift/SceneKit 架構遺留:
+
+- **刪除 `codebase/scripts/build_unsigned_ipa.sh`** —— 原 Swift App 的未簽署建置腳本。
+  Unity 專案改用 `build_unity_ipa.sh`(`XCODEBUILD_ONLY=1` 模式)。`cicd.yml` 的 `test:sast`
+  job(唯一呼叫者,已 `if: false`)整個移除。
+- **刪除 `codebase/scripts/fetch_chunks.sh`**(0 位元組空檔)—— 分塊資料改由
+  `export_xcode_project.ps1 -ChunksSource` 於本機匯出時注入,不再從 Release 下載。
+  `build_unity_ipa.sh` 的階段 0(呼叫 fetch_chunks)移除。
+- **刪除 `codebase/.swiftlint.yml`** —— Swift 專案已不存在,SwiftLint 設定無用。
+  `dependabot.yml` 的 `swift` ecosystem 項目一併移除。
+- **刪除 `codebase/unity-project/Assets/Scripts/FlyCameraController.cs`(+ .meta)** ——
+  舊桌面飛行攝影機控制器,已被 `TouchPlayerController.cs` 完全取代。GUID 在任何場景/預製物/資產
+  中均未被引用。
+- **`cicd.yml`**:`test:sast` job(含 Swift 模擬器測試 + CodeQL Swift 分析,90+ 行)刪除,
+  改為註解說明待 Stage C GameCI 重建。標頭註解更新為 v2.2.18 狀態。
+- **`build_unity_ipa.sh`**:移除階段 0(fetch_chunks 呼叫)、`CHUNKS_RELEASE_TAG` 環境變數、
+  模式顯示中的 "fetch" 字樣。
+- **`export_xcode_project.ps1`**:錯誤訊息移除 `fetch_chunks.sh` 引用。
+- **`codebase/converter/requirements.txt`**:新增 `fast_simplification`、`scipy`
+  (`decimate_glb.py --textured` 的相依)。
+- **`AGENTS.md`**:更新工作流程狀態(v2.2.18)、build & package 章節(改指向
+  `build_unity_ipa.sh`)、App 章節(移除 FlyCameraController、更新腳本清單、更新狀態)、
+  Testing 章節(標明無活躍測試 job)、Conventions 章節(移除 SwiftLint、build_unsigned_ipa)、
+  權限說明、mermaid 圖。
+- **`README.md`**:完整改寫,移除 SceneKit/Minecraft/HKMinecraftVoxel 引用,改為
+  Tuanjie + Unity + glTFast 攝影測量飛覽架構。
+
 ## [v2.2.17] - 2026-11-24
 
 ### 修正(iOS 地面填補 ArgumentNullException——Standard 著色器被 stripping 移除)

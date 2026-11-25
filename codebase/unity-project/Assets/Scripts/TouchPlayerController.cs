@@ -1,7 +1,7 @@
 // TouchPlayerController.cs — 第一人稱玩家控制器:觸控搖桿移動 + 右側拖曳視角(pan/tilt)
 // + 捏合縮放(zoom/FOV)+ 地面跟隨射線。
 //
-// 取代 FlyCameraController(僅 WASD + 滑鼠,在 iPhone 無輸入 → 藍屏)。
+// 取代舊版 FlyCameraController(僅 WASD + 滑鼠,在 iPhone 無輸入 → 藍屏;已刪除)。
 //
 // 控制方式:
 //   桌面(Editor/Standalone):WASD 移動 + 滑鼠右鍵拖曳視角 + 滾輪縮放(Shift 衝刺)+ SPACE 跳躍。
@@ -88,6 +88,12 @@ namespace HKGrid.Streaming
         public float joystickMarginY = 160f;
         [Tooltip("v2.2.4: 搖桿視角靈敏度(度/秒)。搖桿控制 pan/tilt 而非移動")]
         public float joystickLookSpeed = 90f;
+        [Tooltip("v2.2.18: 是否顯示搖桿視覺(底盤+拇指)。false=隱藏(iOS),輸入仍正常運作")]
+        public bool showJoystickUI = false;
+
+        [Header("跳躍(行動 v2.2.18)")]
+        [Tooltip("v2.2.18: 行動裝置跳躍:右側雙擊間隔(秒)。0=停用行動跳躍")]
+        public float mobileJumpDoubleTapTime = 0.3f;
 
         // ── 內部狀態 ──
         private Camera _cam;
@@ -129,6 +135,9 @@ namespace HKGrid.Streaming
         private bool _isGrounded = false;       // 目前在地面(可跳)
         private bool _isJumping = false;        // 跳躍中(上升或下降,尚未著地)
         private float _lastJumpTime = -Mathf.Infinity;  // 上次跳躍時間(Time.time)
+        // v2.2.18: 行動跳躍——右側雙擊偵測
+        private float _lastRightTapTime = -Mathf.Infinity;  // 上次右側單擊時間
+        private bool _mobileJumpQueued = false;  // 本幀待處理的行動跳躍請求
 
         private void Awake()
         {
@@ -185,10 +194,6 @@ namespace HKGrid.Streaming
             _pitch = startPitch;
             // v2.2.3: 不在 Awake 設定 transform.position;由 Bootstrapper.OnSpawned() 處理
             _spawned = false;
-
-            // 若舊版 FlyCameraController 仍在攝影機上,停用之
-            var fly = GetComponent<FlyCameraController>();
-            if (fly != null) fly.enabled = false;
 
             if (_isMobile)
             {
@@ -324,9 +329,18 @@ namespace HKGrid.Streaming
                           $"yaw={_yaw:F1}, pitch={_pitch:F1} | FOV={_cam.fieldOfView:F1}");
             }
 
-            // v2.2.13: 跳躍輸入(桌面 SPACE;行動暫不支援)
+            // v2.2.13: 跳躍輸入(桌面 SPACE;v2.2.18: 行動右側雙擊)
             // 僅地面狀態 + 冷卻結束可跳;單跳(無二段跳)
-            if (!_isMobile && Input.GetKeyDown(KeyCode.Space) && _isGrounded && !_isJumping)
+            bool jumpPressed = false;
+            if (!_isMobile && Input.GetKeyDown(KeyCode.Space))
+                jumpPressed = true;
+            // v2.2.18: 行動跳躍由 HandleTouchInput 雙擊偵測設定 _mobileJumpQueued
+            if (_isMobile && _mobileJumpQueued)
+            {
+                jumpPressed = true;
+                _mobileJumpQueued = false;
+            }
+            if (jumpPressed && _isGrounded && !_isJumping)
             {
                 if (Time.time - _lastJumpTime >= jumpCooldown)
                 {
@@ -334,7 +348,7 @@ namespace HKGrid.Streaming
                     _isJumping = true;
                     _isGrounded = false;
                     _lastJumpTime = Time.time;
-                    Debug.Log($"[TouchPlayerController] 跳躍: verticalVel={_verticalVel:F2} m/s");
+                    Debug.Log($"[TouchPlayerController] 跳躍: verticalVel={_verticalVel:F2} m/s (mobile={_isMobile})");
                 }
             }
 
@@ -399,6 +413,20 @@ namespace HKGrid.Streaming
                         {
                             _lookFingerId = t.fingerId;
                             _lastLookPos = t.position;
+                            // v2.2.18: 右側雙擊 = 跳躍(兩次點擊間隔 < mobileJumpDoubleTapTime)
+                            if (mobileJumpDoubleTapTime > 0f)
+                            {
+                                if (Time.time - _lastRightTapTime <= mobileJumpDoubleTapTime)
+                                {
+                                    _mobileJumpQueued = true;
+                                    _lastRightTapTime = -Mathf.Infinity;  // 防三擊
+                                    Debug.Log("[TouchPlayerController] 行動跳躍:右側雙擊偵測");
+                                }
+                                else
+                                {
+                                    _lastRightTapTime = Time.time;
+                                }
+                            }
                         }
                         break;
 
@@ -667,7 +695,10 @@ namespace HKGrid.Streaming
             baseGo.transform.SetParent(canvasGo.transform, false);
             _joystickBaseImg = baseGo.AddComponent<Image>();
             _joystickBaseImg.sprite = _circleSprite;
-            _joystickBaseImg.color = new Color(1f, 1f, 1f, 0.2f);
+            // v2.2.18: showJoystickUI=false 時完全透明(隱藏),輸入仍正常
+            _joystickBaseImg.color = showJoystickUI
+                ? new Color(1f, 1f, 1f, 0.2f)
+                : new Color(1f, 1f, 1f, 0f);
             _joystickBaseImg.rectTransform.sizeDelta = Vector2.one * joystickRadius * 2f;
             _joystickBaseImg.raycastTarget = false;
 
@@ -676,7 +707,9 @@ namespace HKGrid.Streaming
             thumbGo.transform.SetParent(baseGo.transform, false);
             _joystickThumbImg = thumbGo.AddComponent<Image>();
             _joystickThumbImg.sprite = _circleSprite;
-            _joystickThumbImg.color = new Color(1f, 1f, 1f, 0.5f);
+            _joystickThumbImg.color = showJoystickUI
+                ? new Color(1f, 1f, 1f, 0.5f)
+                : new Color(1f, 1f, 1f, 0f);
             _joystickThumbImg.rectTransform.sizeDelta = Vector2.one * joystickRadius * 0.7f;
             _joystickThumbImg.raycastTarget = false;
 

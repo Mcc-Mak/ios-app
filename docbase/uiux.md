@@ -22,11 +22,11 @@ flowchart LR
 ```mermaid
 block-beta
   columns 1
-  header["header:HK Minecraft + 標語 + 快速標籤 + 頁內導覽"]
+  header["header:HKGrid + 標語 + 快速標籤 + 頁內導覽"]
   install["下載卡片:最新版本 / 大小·日期 / [下載 .ipa] / [所有發行版本]"]
   methods["安裝方式:AltStore / SideStore / Sideloadly / Xcode / Actions 成品(完整步驟)"]
   faq["常見問題:空饋流、未信任開發者、7 天憑證、數量限制"]
-  pipeline["管線:test:sast → build:ipa → release:ipa → deploy:docs"]
+  pipeline["管線:build:ipa（workflow_dispatch）→ deploy:docs"]
   footer["footer:所有發行版本 · 原始碼 · MIT"]
   header --> install --> methods --> faq --> pipeline --> footer
 ```

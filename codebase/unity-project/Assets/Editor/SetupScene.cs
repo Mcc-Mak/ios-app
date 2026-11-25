@@ -7,7 +7,7 @@
 // 冪等(re-runnable):已存在的資產/物件會更新而非重複建立。
 //
 // 產出:
-//   Assets/Scenes/Main.unity          — 入口場景(Camera + Bootstrapper + FlyCamera)
+//   Assets/Scenes/Main.unity          — 入口場景(Camera + Bootstrapper + TouchPlayerController)
 //   Assets/Configs/ChunkStreamConfig.asset — 串流器設定資產
 //   ProjectSettings/EditorBuildSettings.asset — Main.unity 設為 scene 0
 
@@ -90,13 +90,7 @@ namespace HKGrid.Editor
             // v2.2.8: 恢復原始 manifest 中心自動定位(放棄手動地下座標)
             boot.useManualStartWorldPos = false;
 
-            // 6. 掛 TouchPlayerController(觸控 FPS;桌面自動回退 WASD)。移除舊版 FlyCameraController。
-            var oldFly = cam.GetComponent<FlyCameraController>();
-            if (oldFly != null)
-            {
-                Object.DestroyImmediate(oldFly);
-                Debug.Log("[SetupScene] 移除舊版 FlyCameraController");
-            }
+            // 6. 掛 TouchPlayerController(觸控 FPS;桌面自動回退 WASD)。
             var player = cam.GetComponent<TouchPlayerController>();
             if (player == null)
             {

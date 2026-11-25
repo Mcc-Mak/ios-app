@@ -16,7 +16,7 @@ flowchart TD
 
 ## 表一：文件 × 元件
 
-元件欄簡寫：`build`=build_unsigned_ipa.sh、`gen`=generate_apps_json.sh、`site`=site/、`cfg`=app.config.json，`cicd`=cicd.yml，`dependabot`=dependabot.yml。
+元件欄簡寫：`build`=build_unity_ipa.sh、`gen`=generate_apps_json.sh、`site`=site/、`cfg`=app.config.json，`cicd`=cicd.yml，`dependabot`=dependabot.yml。
 
 | 文件 | build | gen | site | cfg | cicd.yml | dependabot.yml |
 |------|:--:|:--:|:--:|:--:|:--:|:--:|

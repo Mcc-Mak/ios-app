@@ -100,7 +100,7 @@ if ($env:IPA_CHUNKS_SOURCE_DIR) {
     Write-Output "  來源:$($env:IPA_CHUNKS_SOURCE_DIR)"
 } elseif (-not (Test-Path "$ChunksDir\manifest.json")) {
     Write-Error "找不到分塊資料:$ChunksDir\manifest.json"
-    Write-Error "請用 -ChunksSource 指定 IPA 分塊來源,或先執行 swap_chunks.ps1 / fetch_chunks.sh 注入分塊。"
+    Write-Error "請用 -ChunksSource 指定 IPA 分塊來源,或先執行 swap_chunks.ps1 注入分塊。"
     exit 1
 } else {
     $GlbCount = (Get-ChildItem "$ChunksDir\*.glb" -ErrorAction SilentlyContinue).Count

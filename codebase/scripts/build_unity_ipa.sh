@@ -2,7 +2,6 @@
 # build_unity_ipa.sh — 完整 iOS 建置管線(Unity 匯出 → xcodebuild 封存 → .ipa)
 #
 # 階段:
-#   0. fetch_chunks.sh — 注入分塊資料至 StreamingAssets/Chunks/
 #   1. Tuanjie.exe -batchmode -executeMethod BuildIOS.Export — 匯出 Xcode 專案
 #   2. xcodebuild archive(未簽署,4 旗標)— 封存
 #   3. 從 .xcarchive 提取 .app → Payload/<App>.app → .ipa
@@ -10,15 +9,15 @@
 #   5. 產生 manifest.json + GITHUB_OUTPUT
 #
 # 三種模式(互斥):
-#   預設(全管線)        — 階段 0-5:fetch + Unity 匯出 + xcodebuild + 打包(需 macOS)
-#   UNITY_EXPORT_ONLY=1  — 階段 0-1:fetch + Unity 匯出(Windows 本機用,產出 Xcode 專案)
+#   預設(全管線)        — 階段 1-5:Unity 匯出 + xcodebuild + 打包(需 macOS)
+#   UNITY_EXPORT_ONLY=1  — 階段 1:Unity 匯出(Windows 本機用,產出 Xcode 專案)
 #   XCODEBUILD_ONLY=1    — 階段 2-5:僅 xcodebuild + 打包(CI macOS 用,使用預匯出 Xcode 專案)
 #                          需搭配 XCODE_PROJECT_DIR 指向已匯出的 Xcode 專案目錄。
 #
 # 平台限制:
-#   階段 0-1 可在 Windows(Tuanjie)或 macOS 執行。
+#   階段 1 可在 Windows(Tuanjie)或 macOS 執行。
 #   階段 2-4 僅 macOS(xcodebuild 僅存在於 macOS)。
-#   在 Windows 上執行時,設定 UNITY_EXPORT_ONLY=1 只跑階段 0-1。
+#   在 Windows 上執行時,設定 UNITY_EXPORT_ONLY=1 只跑階段 1。
 #
 # 零 Apple 機密:所有 xcodebuild 皆未簽署:
 #   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
@@ -46,7 +45,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PROJECT_PATH="${PROJECT_PATH:-$REPO_ROOT/codebase/unity-project}"
-CHUNKS_RELEASE_TAG="${CHUNKS_RELEASE_TAG:-data-11-NW-15B-l16-v1}"
 IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.mccmak.hkgridvoxel}"
 IOS_VERSION="${IOS_VERSION:-1.0}"
 IOS_PRODUCT_NAME="${IOS_PRODUCT_NAME:-HKGridVoxel}"
@@ -81,7 +79,7 @@ if [[ "$XCODEBUILD_ONLY" == "1" ]]; then
 elif [[ "$UNITY_EXPORT_ONLY" == "1" ]]; then
   echo " 模式:UNITY_EXPORT_ONLY(僅 Unity 匯出,Windows 本機用)"
 else
-  echo " 模式:全管線(fetch + Unity 匯出 + xcodebuild + 打包)"
+  echo " 模式:全管線(Unity 匯出 + xcodebuild + 打包)"
 fi
 echo "═══════════════════════════════════════════════════════════════"
 echo "  Bundle ID        : $IOS_BUNDLE_ID"
@@ -93,15 +91,9 @@ echo "  Output Dir       : $OUTPUT_DIR"
 echo "═══════════════════════════════════════════════════════════════"
 
 # ═══════════════════════════════════════════════════════════════
-# 階段 0-1:Unity 匯出(UNITY_EXPORT_ONLY 或全管線模式)
+# 階段 1:Unity 匯出(UNITY_EXPORT_ONLY 或全管線模式)
 # ═══════════════════════════════════════════════════════════════
 if [[ "$XCODEBUILD_ONLY" != "1" ]]; then
-
-  # ─── 階段 0:注入分塊資料 ──────────────────────────────────
-  echo ""
-  echo "─── 階段 0:注入分塊資料 ───"
-  CHUNKS_DIR="$PROJECT_PATH/Assets/StreamingAssets/Chunks"
-  bash "$SCRIPT_DIR/fetch_chunks.sh" "$CHUNKS_RELEASE_TAG" "$CHUNKS_DIR"
 
   # ─── 偵測 Unity/Tuanjie Editor 路徑 ───────────────────────
   UNITY_EDITOR="${UNITY_EDITOR:-}"

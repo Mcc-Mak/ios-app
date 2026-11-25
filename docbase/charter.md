@@ -7,7 +7,7 @@
 ```mermaid
 flowchart LR
   subgraph 範圍["在範圍內"]
-    ci["CI/CD pipeline<br/>測試/未簽署建置/打包"]
+    ci["CI/CD pipeline<br/>未簽署建置/打包/發行"]
     pages["Pages 入口 + apps.json 饋流"]
     rel["版本發行 + dSYM/manifest"]
     refresh["7 天憑證週期支援"]
@@ -24,22 +24,22 @@ flowchart LR
 ## 範圍
 
 **在範圍內（In-scope）：**
-- CI/CD pipeline：測試、未簽署建置、封存、IPA 打包。
+- CI/CD pipeline：未簽署建置、封存、IPA 打包、發行。
 - GitHub Pages 入口網站與 AltStore/SideStore `apps.json` 饋流。
 - 版本發行（GitHub Release）與 dSYM / manifest.json 成品。
 - 7 天憑證週期的重新安裝/刷新支援。
 
 **不在範圍內（Out-of-scope）：**
-- App 原始碼本身（Xcode 專案由維護者另行加入根目錄）。
 - 任何付費簽署機制（certs、profiles、fastlane match）。
 - App Store 上架。
+- CI 內執行 Unity 建置（Unity 授權機密與 GameCI 重建待 ADR-010 / Stage C 後續評估；目前 CI 僅以預先匯出的 Xcode 專案執行 `xcodebuild`）。
 
 ## 目標
 
-1. 每次 push/PR 到 `main` 自動執行未簽署測試與建置。
-2. `v*` semver tag 觸發發行，自動產生 `.ipa` + `.dSYM.zip` + `manifest.json`。
+1. `push` 到 `main` 自動部署 Pages 入口與 `apps.json` 饋流；IPA 建置以 `workflow_dispatch` 指定 `release_tag` 觸發。
+2. `workflow_dispatch` 觸發發行，自動產生 `.ipa` + `.dSYM.zip` + `manifest.json` 並上傳至目標 Release。
 3. Pages 站台與 `apps.json` 在每次發行後自動更新。
-4. Pipeline 在無任何 Apple 機密的情況下完整運作。
+4. Pipeline 在無任何 Apple 簽署機密的情況下完整運作（僅內建 `GITHUB_TOKEN`）。
 
 ## 成功標準
 
@@ -58,4 +58,4 @@ flowchart LR
 
 ## 時間表
 
-專案狀態：**零成本 iOS CI/CD pipeline 與 HK Minecraft 體素 App 均已完整建置**（原生 Swift + SceneKit,見 `./adr.md` ADR-007;專案位於 `../codebase/app/HKMinecraftVoxel.xcodeproj`）。首次發行於 `v*` semver tag 觸發;目前版本見 `../CHANGELOG.md`,首個正式版本為 `v1.0.0`。
+專案狀態：**零成本 iOS CI/CD pipeline 與 HKGrid 體素 App 均已完整建置**（Tuanjie 2022.3.61t15 + C# + glTFast,見 `./adr.md` ADR-009 / ADR-011;專案位於 `../codebase/unity-project/`）。發行由 `workflow_dispatch` 觸發;目前版本見 `../CHANGELOG.md`,最新版本為 `v2.2.18`。

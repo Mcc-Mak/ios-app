@@ -8,11 +8,24 @@ v4:合併每塊內所有 mesh → fast_simplification(目標面數)→ 平面色
     (UV 會丟失,改用紋理平均色作為 baseColorFactor)
   - 紋理:取第一個 mesh 的 baseColorTexture 平均色,設為 PBRMaterial.baseColorFactor
 
+v5:新增 --textured 模式(保留紋理,trimesh 純路徑)。
+  - 每個子網格:fast_simplification 簡化 → scipy KDTree UV 重投影(逆距離加權 k=3)
+  - 紋理降解析度至 --texture-size(預設 128px)
+  - 不需 pymeshlab(避免其無法匯出 .glb/.obj-with-texture 的限制)
+  - 適用於 20MB IPA 分塊(遠優於平面色的 2MB 版)
+
 用法:
+  # 2MB 平面色(原 v4):
   python decimate_glb.py \\
     --input  /path/to/source_chunks \\
     --output /path/to/ipa_chunks \\
     --target-total-mb 2 --faces-per-chunk 1500
+
+  # 20MB 保留紋理(v5):
+  python decimate_glb.py \\
+    --input  /path/to/source_chunks \\
+    --output /path/to/ipa_chunks_20mb \\
+    --target-total-mb 20 --faces-per-chunk 12000 --textured --texture-size 64
 """
 from __future__ import annotations
 
@@ -89,6 +102,117 @@ def decimate_chunk(src_glb: Path, dst_glb: Path,
     return actual_bytes, len(combined.faces)
 
 
+def _reproject_uvs(orig_verts: np.ndarray, orig_uvs: np.ndarray,
+                   new_verts: np.ndarray) -> np.ndarray:
+    """為每個新頂點找最近原始頂點(逆距離加權 k=3),內插 UV。
+
+    fast_simplification 不保留 UV,故簡化後需重投影。
+    使用 scipy.spatial.cKDTree(不需 rtree)做最近鄰搜尋。
+    """
+    from scipy.spatial import cKDTree
+    k = min(3, len(orig_verts))
+    tree = cKDTree(orig_verts)
+    dist, indices = tree.query(new_verts, k=k)
+    if k == 1:
+        return orig_uvs[indices]
+    # 逆距離加權
+    weights = 1.0 / (dist + 1e-12)
+    weights /= weights.sum(axis=1, keepdims=True)
+    neighbor_uvs = orig_uvs[indices]  # (N, k, 2)
+    return np.einsum("ij,ijk->ik", weights, neighbor_uvs)
+
+
+def decimate_chunk_textured(src_glb: Path, dst_glb: Path,
+                            target_faces: int,
+                            texture_size: int) -> tuple[int, int]:
+    """
+    v5: 保留紋理的簡化(trimesh 純路徑,不需 pymeshlab)。
+
+    流程:
+      1. trimesh 載入 GLB(保留子網格 + UV + 紋理)
+      2. 每個子網格:fast_simplification 簡化 → scipy KDTree UV 重投影
+      3. 紋理降解析度至 texture_size
+      4. 合併子網格 → 匯出 GLB
+
+    回傳 (bytes, triangles)。
+    """
+    scene = trimesh.load(str(src_glb), force="scene")
+
+    # 收集所有子網格
+    sub_meshes = []
+    if isinstance(scene, trimesh.Scene):
+        for _n, g in scene.geometry.items():
+            if hasattr(g, "faces") and len(g.faces) > 0:
+                sub_meshes.append(g)
+    elif isinstance(scene, trimesh.Trimesh) and len(scene.faces) > 0:
+        sub_meshes.append(scene)
+
+    if not sub_meshes:
+        return 0, 0
+
+    # 每個子網格的目標面數(平均分配)
+    target_per = max(200, target_faces // len(sub_meshes))
+
+    out_meshes = []
+    for g in sub_meshes:
+        orig_verts = np.array(g.vertices, dtype=np.float64)
+        orig_faces = np.array(g.faces, dtype=np.int64)
+
+        # 取原始 UV + 材質
+        orig_uvs = None
+        mat = None
+        vis = getattr(g, "visual", None)
+        if vis is not None:
+            mat = getattr(vis, "material", None)
+            if hasattr(vis, "uv") and vis.uv is not None and len(vis.uv) == len(orig_verts):
+                orig_uvs = np.array(vis.uv, dtype=np.float64)
+
+        # 簡化
+        if len(orig_faces) > target_per:
+            new_verts, new_faces = fast_simplification.simplify(
+                orig_verts, orig_faces, target_count=target_per)
+            new_verts = np.asarray(new_verts, dtype=np.float64)
+            new_faces = np.asarray(new_faces, dtype=np.int64)
+        else:
+            new_verts = orig_verts
+            new_faces = orig_faces
+
+        # UV 重投影
+        new_uvs = None
+        if orig_uvs is not None and len(new_verts) > 0:
+            new_uvs = _reproject_uvs(orig_verts, orig_uvs, new_verts)
+
+        # 建立結果網格
+        result = trimesh.Trimesh(vertices=new_verts, faces=new_faces,
+                                  process=False)
+        if new_uvs is not None and mat is not None:
+            # 降解析度紋理
+            img = getattr(mat, "baseColorTexture", None)
+            if img is not None and isinstance(img, Image.Image):
+                if img.size[0] > texture_size or img.size[1] > texture_size:
+                    img = img.resize(
+                        (texture_size, texture_size), Image.LANCZOS)
+                    mat.baseColorTexture = img
+                mat.doubleSided = True
+                mat.roughnessFactor = 1.0
+            result.visual = trimesh.visual.TextureVisuals(
+                uv=new_uvs, material=mat)
+
+        out_meshes.append(result)
+
+    # 合併並匯出
+    if len(out_meshes) > 1:
+        combined = trimesh.util.concatenate(out_meshes)
+    else:
+        combined = out_meshes[0]
+
+    dst_glb.parent.mkdir(parents=True, exist_ok=True)
+    combined.export(str(dst_glb))
+    actual_bytes = dst_glb.stat().st_size
+    face_count = len(combined.faces) if hasattr(combined, "faces") else 0
+    return actual_bytes, face_count
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description="重新簡化 GLB 分塊至目標大小(fast_simplification + 合併 mesh)",
@@ -99,6 +223,10 @@ def main() -> int:
     p.add_argument("--target-total-mb", type=float, default=2.0, help="目標總大小(MB)")
     p.add_argument("--faces-per-chunk", type=int, default=1500,
                    help="每塊目標面數(合併後)")
+    p.add_argument("--textured", action="store_true",
+                   help="v5: 保留紋理(fast_simplification + UV 重投影 + 紋理降解析度)")
+    p.add_argument("--texture-size", type=int, default=128,
+                   help="v5: 紋理降解析度目標(像素,正方形)。僅 --textured 時生效")
     args = p.parse_args()
 
     src_dir = Path(args.input)
@@ -115,8 +243,11 @@ def main() -> int:
 
     n_chunks = len(manifest["chunks"])
 
+    mode = "保留紋理" if args.textured else "平面色"
     print(f"目標: {args.target_total_mb} MB 總計, {n_chunks} 分塊")
-    print(f"  每塊 ~{args.faces_per_chunk} 面(合併後),平面色材質(無紋理)")
+    print(f"  每塊 ~{args.faces_per_chunk} 面, {mode}")
+    if args.textured:
+        print(f"  紋理降解析度: {args.texture_size}x{args.texture_size}px")
     print(f"  來源: {src_dir}")
     print(f"  輸出: {dst_dir}")
     print()
@@ -129,7 +260,10 @@ def main() -> int:
         if not src_glb.exists():
             print(f"  [{i}/{n_chunks}] {c['id']}: 跳過(找不到 {src_glb.name})")
             continue
-        b, t = decimate_chunk(src_glb, dst_glb, args.faces_per_chunk)
+        if args.textured:
+            b, t = decimate_chunk_textured(src_glb, dst_glb, args.faces_per_chunk, args.texture_size)
+        else:
+            b, t = decimate_chunk(src_glb, dst_glb, args.faces_per_chunk)
         c["bytes"] = b
         c["triangles"] = t
         total_bytes += b

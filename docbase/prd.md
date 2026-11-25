@@ -7,7 +7,7 @@ flowchart LR
   user["免費 Apple ID 使用者"] -->|"F1 下載 IPA"| portal["Pages 入口"]
   user -->|"F2 加入來源"| altstore["AltStore/SideStore"]
   altstore -->|"F3 7 天刷新"| feed["apps.json"]
-  maint["維護者"] -->|"F4 push v* tag"| release["cicd.yml<br/>release:ipa"]
+  maint["維護者"] -->|"F4 workflow_dispatch + release_tag"| release["cicd.yml<br/>build:ipa（含發行）"]
   release -->|"發行成功後"| pages["deploy:docs"]
   pages --> feed
   portal --> feed
@@ -35,13 +35,13 @@ flowchart LR
 - **驗收條件**：每次發行後 `apps.json` 的 `versionDate` 更新；使用者於 AltStore/SideStore 點刷新即可取得最新版。
 
 ### F4：發行版本自動產生
-- **說明**：維護者推送 `v*` semver tag，pipeline 自動建置並發行。
-- **驗收條件**：`../.github/workflows/cicd.yml` 的 `release:ipa` 建立 Release，附掛 `.ipa` + `.dSYM.zip` + `manifest.json`；同一次執行的 `deploy:docs` 在發行成功後重建饋流。
+- **說明**：維護者以 `workflow_dispatch` 指定 `release_tag` 觸發，pipeline 自動建置並發行。
+- **驗收條件**：`../.github/workflows/cicd.yml` 的 `build:ipa`（已併入 `release:ipa`）建立/更新 Release，附掛 `.ipa` + `.dSYM.zip` + `manifest.json`；同一次執行的 `deploy:docs` 在發行成功後重建饋流。
 
-## v1.0.0 發行標準（Release Criteria）
+## v2.2.18 發行標準（Release Criteria）
 
-- [ ] 六個 FR 全數實作並通過（見 `./srs.md`）。
-- [ ] 全新 fork、零 secret 設定下，push/PR CI 全綠。
+- [ ] FR-2 ~ FR-6 實作並通過（FR-1 測試待 Stage C GameCI 重建，見 `./srs.md`）。
+- [ ] 全新 fork、零 Apple secret 設定下，`deploy:docs` 與 `build:ipa`（`workflow_dispatch`）可運作。
 - [ ] `unzip -l` 驗證 IPA 佈局為 `Payload/<App>.app` 根目錄。
 - [ ] Pages 站台上線，`apps.json` 有效且資產來源欄位正確。
-- [ ] `../CHANGELOG.md` 記錄 `v1.0.0`。
+- [ ] `../CHANGELOG.md` 記錄 `v2.2.18`。

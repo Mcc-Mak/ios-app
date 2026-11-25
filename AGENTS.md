@@ -24,16 +24,16 @@ Greenfield app (no Xcode project yet — to be added at repo root), but the **ze
 flowchart TD
   root["儲存庫根目錄"] --> gh[".github/<br/>workflows/ + dependabot.yml"]
   root --> codebase["codebase/<br/>實作成品"]
-  codebase --> scripts["scripts/<br/>build_unsigned_ipa.sh<br/>generate_apps_json.sh"]
+  codebase --> scripts["scripts/<br/>build_unity_ipa.sh<br/>generate_apps_json.sh"]
   codebase --> site["site/<br/>入口網站 + apps.json"]
-  codebase --> app["app/<br/>Swift 應用專案"]
-  codebase --> cfg["app.config.json<br/>.swiftlint.yml"]
+  codebase --> app["unity-project/<br/>Unity 專案"]
+  codebase --> cfg["app.config.json"]
   root --> docbase["docbase/<br/>18 份文件(繁中)"]
   root --> rootdocs["AGENTS.md(英)<br/>README.md(繁中)<br/>CHANGELOG.md<br/>.gitignore / LICENSE"]
   gh -.參照.-> codebase
 ```
 
-- `codebase/` — all implementation artifacts: `scripts/`, `site/`, `app/`, `app.config.json`, `.swiftlint.yml`.
+- `codebase/` — all implementation artifacts: `converter/`, `scripts/`, `site/`, `unity-project/`, `app.config.json`.
 - `.github/workflows/` + `.github/dependabot.yml` — MUST stay at repo root (GitHub hard requirement). They reference `codebase/` paths. Do not move them into `codebase/`.
 - `docbase/` — all project documentation (Traditional Chinese): `toctree, charter, srs, pdr, prd, user-stories, adr, architecture, api, uiux, schema, erd, setup, configurations, cicd, rtm, crm, quick-start` (`.md`). `crm` = cross-reference matrix; `rtm` = requirements traceability matrix.
 - Root: `AGENTS.md` (English, this file), `README.md` (繁體中文), `CHANGELOG.md` (semver), `.gitignore`, `LICENSE`.
@@ -43,59 +43,63 @@ flowchart TD
 
 One workflow, multiple jobs, one stable stage order. Do not split it back into per-concern files.
 
-**v2.0.0 status:** `test`/`build`/`release` (Swift/SceneKit jobs) are disabled with `if: false` pending Stage C rebuild as a GameCI + Unity pipeline (ADR-010). `deploy` is decoupled — no longer `needs: [build, release]` — and runs independently on `push`/`workflow_dispatch` to keep Pages + `apps.json` alive. The bullet list below is the canonical target structure for the rebuild, not the current state.
+**v2.2.18 status:** `test:sast` (Swift/SceneKit job) is **removed** — the original Swift App no longer exists; awaiting Stage C rebuild as a GameCI + Unity pipeline (ADR-010). `build:ipa` runs only on `workflow_dispatch` (downloads a pre-exported Xcode project from a `xcode-export-*` release, then `xcodebuild` archive — no Unity license in CI). `deploy:docs` runs on `push`/`workflow_dispatch` to keep Pages + `apps.json` alive. The bullet list below is the canonical target structure for the rebuild, not the current state.
 
-- `test:sast` — simulator tests (+ coverage artifacts) **and** CodeQL Swift (`build-mode: manual`, so the unsigned build is instrumented). Runs on every trigger.
-- `build:ipa` — `needs: test`; calls `codebase/scripts/build_unsigned_ipa.sh`; uploads `unsigned-ipa` (`.ipa` + `manifest.json`) and `dsym`.
-- `release:ipa` — `needs: build`; tags only (`if: startsWith(github.ref, 'refs/tags/v')`); runs on `ubuntu-latest`; downloads the artifacts, then `gh release create` / `gh release upload` (`.ipa` + `.dSYM.zip` + `manifest.json`).
-- `deploy:docs` — `needs: [build, release]`; `if: always()` with `needs.release.result` guards (release is `skipped` on non-tag events); stages `codebase/site/`, regenerates `apps.json`, deploys via `actions/deploy-pages`. Job-level `concurrency: pages`.
-- Triggers: `push` to `main` and `v*` tags, `pull_request`, daily cron (unsigned-build health check), `workflow_dispatch`. `.github/dependabot.yml` covers `swift` + `github-actions`, weekly.
+- `test:sast` — [removed] pending Stage C GameCI rebuild. Original Swift simulator tests + CodeQL Swift analysis deleted (no Swift build target).
+- `build:ipa` — [workflow_dispatch only] calls `codebase/scripts/build_unity_ipa.sh` (in `XCODEBUILD_ONLY=1` mode); uploads `unsigned-ipa` (`.ipa` + `manifest.json`) and `dsym`, then uploads assets to the target `release_tag` release.
+- `release:ipa` — [merged into `build:ipa`] the build job directly uploads assets to the release.
+- `deploy:docs` — `needs: build` with `if: always()` guards (build is `skipped` on non-dispatch events); stages `codebase/site/`, regenerates `apps.json`, deploys via `actions/deploy-pages`. Job-level `concurrency: pages`.
+- Triggers: `push` to `main` and `v*` tags, `pull_request`, daily cron, `workflow_dispatch`. `.github/dependabot.yml` covers `github-actions`, weekly.
 
 **Naming convention:** the workflow `name:` must contain **no colon**; every job's `name:` is `stage:artifact` (e.g. `test:sast`, `build:ipa`, `release:ipa`, `deploy:docs`). The colon is display-only — GitHub job **keys** cannot contain `:`, so keep keys plain (`test`, `build`, `release`, `deploy`). New stages must keep both the suffix form and the `test → build → release → deploy` order.
 
-Job-level permissions are minimal: `security-events: write` only on `test`, `contents: write` only on `release`, `pages: write` + `id-token: write` only on `deploy`. The workflow-level default is `contents: read`.
+Job-level permissions are minimal: `contents: write` only on `build` (uploads to release), `contents: read` + `actions: read` + `pages: write` + `id-token: write` only on `deploy`. The workflow-level default is `contents: read`.
 
-## Build & package (`codebase/scripts/build_unsigned_ipa.sh`)
+## Build & package (`codebase/scripts/build_unity_ipa.sh`)
 
+- Three modes (mutually exclusive): default full pipeline (Unity export + `xcodebuild` + package), `UNITY_EXPORT_ONLY=1` (Unity export only, Windows local), `XCODEBUILD_ONLY=1` (`xcodebuild` + package only, CI macOS; requires `XCODE_PROJECT_DIR`).
 - Release archive with the unsigned flags: `xcodebuild archive -configuration Release -archivePath build/App.xcarchive ...`.
 - Pull `<App>.app` from `App.xcarchive/Products/Applications/` (use `ditto` to preserve symlinks/metadata).
 - **IPA layout must be `Payload/<App>.app` at the zip root.** `cd` to the dir containing `Payload/` and `zip -r "<App>-<Ver>.ipa" Payload` — zipping the bare `.app` or zipping from *inside* `Payload/` produces a file AltStore/Sideloadly reject.
-- Derive `<App>` and `<Ver>` from the built `Info.plist` (`CFBundleName` / `CFBundleShortVersionString`); don't hardcode.
+- Derive `<App>` and `<Ver>` from the built `Info.plist` (`CFBundleShortVersionString` / `CFBundleIdentifier`); don't hardcode.
 - Package dSYMs from `App.xcarchive/dSYMs/` as `<App>-<Ver>.dSYM.zip`.
-- Auto-discover `.xcodeproj`/`.xcworkspace` + scheme (maxdepth 4 so projects at root or under `codebase/` are found); **fail fast if more than one** is found rather than guessing.
-- Emit `manifest.json` (asset-sourced `{appName, bundleIdentifier, version, ipaFileName, dsymFileName}`) and write `GITHUB_OUTPUT` keys.
+- Scheme detection: read `.xcscheme` filename directly from `xcshareddata/xcschemes/` (Tuanjie exports `Tuanjie-iPhone`, Unity exports `Unity-iPhone`); fallback to `xcodebuild -list`; final fallback to `.xcodeproj` basename.
+- Emit `manifest.json` (asset-sourced `{appName, bundleIdentifier, version, ipaFileName, dsymFileName, ipaSizeBytes, minIOSVersion}`) and write `GITHUB_OUTPUT` keys.
 - Verify locally: `unzip -l "<App>-<Ver>.ipa"` must list `Payload/<App>.app/...` at the root.
+- iOS shader stripping is the recurring root cause of blue-screen errors. `BuildIOS.cs`'s `EnsureGltfFastShadersIncluded()` adds glTFast + `Standard` shaders to GraphicsSettings Always Included Shaders (via SerializedObject on `GraphicsSettings.asset`). `link.xml` preserves C# assemblies but NOT shader assets.
 
 ## App (`codebase/unity-project/`)
 
-- Native **Unity 6 LTS + C# + glTFast** photogrammetry flythrough (see `docbase/adr.md` ADR-009, which supersedes the Swift/SceneKit ADR-007). Renders real CSDI `.osgb` photogrammetry, converted to chunked `.glb` by Stage A (`codebase/converter/`), streamed at runtime by Stage B.
+- Native **Tuanjie 2022.3.61t15 + C# + glTFast** photogrammetry flythrough (see `docbase/adr.md` ADR-009, which supersedes the Swift/SceneKit ADR-007). Renders real CSDI `.osgb` photogrammetry, converted to chunked `.glb` by Stage A (`codebase/converter/`), streamed at runtime by Stage B.
 - **Three-stage pipeline:**
-  - **Stage A** (`codebase/converter/`): Python, Unity-agnostic. `convert_osgb_to_chunks.py` runs `osgconv` → `pymeshlab` (UV-preserving decimation) → `trimesh` (recenter + texture downscale + GLB export). Each CSDI sub-tile (`Tile_+X_+Y`) = one `.glb` chunk. `validate_chunks.py` is the hard size gate (≤ 10 MB/chunk, ≤ 200 MB total). Output `manifest.json` lists chunk id/bbox/centroid/file/bytes/triangles/neighbors.
+  - **Stage A** (`codebase/converter/`): Python, Unity-agnostic. `convert_osgb_to_chunks.py` runs `osgconv` → `trimesh` (recenter + texture downscale + GLB export). `decimate_glb.py` re-simplifies existing chunks: default flat-color mode (`fast_simplification`) or `--textured` mode (`fast_simplification` + scipy KDTree UV reprojection + texture downscale — preserves textures, no pymeshlab needed). `validate_chunks.py` is the hard size gate (≤ 10 MB/chunk, ≤ 200 MB total). Each CSDI sub-tile (`Tile_+X_+Y`) = one `.glb` chunk. Output `manifest.json` lists chunk id/bbox/centroid/file/bytes/triangles/neighbors.
   - **Stage B** (`codebase/unity-project/Assets/Scripts/`): runtime chunk streamer using `com.unity.cloud.gltfast` (`GltfImport` + `InstantiateMainSceneAsync` + `Dispose()`), `TimeBudgetPerFrameDeferAgent` for frame-budgeted loading, spatial load/unload by camera radius, HK coordinates (EPSG:2326 Z-up) normalized to local origin with −90° X rotation to Y-up.
-  - **Stage C**: iOS Player Settings → Xcode export → unsigned archive → `.ipa`. CI rebuild planned via GameCI with Unity license secret (`.ulf`, see ADR-010 which relaxes ADR-006).
-- Scripts: `ChunkManifest.cs` (manifest.json data model), `ChunkStreamConfig.cs` (ScriptableObject settings), `ChunkStreamer.cs` (core streamer), `ChunkStreamBootstrapper.cs` (scene entry), `FlyCameraController.cs` (WASD fly camera).
-- Chunk data lives in `Assets/StreamingAssets/Chunks/` (manifest.json + `.glb` files); it is a build artifact regenerated by Stage A, gitignored, not committed.
-- **Status (v2.0.0):** Stage A complete + verified on real 11-NW-15B (Kowloon City District) data. Stage B is scaffolding pending Unity 6 LTS + iOS Build Support install and first-compile verification of glTFast 6.0 API. Stage C pending. CI Swift build jobs (`test`/`build`/`release`) are disabled (`if: false`) awaiting GameCI rebuild.
+  - **Stage C**: iOS Player Settings → Xcode export (local Windows via `export_xcode_project.ps1`) → CI macOS `xcodebuild` unsigned archive → `.ipa`. No Unity license in CI.
+- Scripts: `ChunkManifest.cs` (manifest.json data model), `ChunkStreamConfig.cs` (ScriptableObject settings), `ChunkStreamer.cs` (core streamer), `ChunkStreamBootstrapper.cs` (scene entry + ground fill + defensive shader fallback), `TouchPlayerController.cs` (touch controls: hidden joystick pan/tilt + right-drag look + pinch zoom + double-tap-right-to-jump; desktop WASD/mouse), `DebugOverlay.cs` (on-screen diagnostics).
+- Chunk data lives in `Assets/StreamingAssets/Chunks/` (manifest.json + `.glb` files); it is a build artifact regenerated by Stage A, gitignored, not committed. Injected at Xcode export time via `export_xcode_project.ps1 -ChunksSource`.
+- **Status (v2.2.18):** Stage A complete + verified on real 11-NW-15B (Kowloon City District) data — 1.8 GB OSGB → 22.5 MB textured GLB (20 chunks, all preserved). Stage B operational — IPA renders chunks on iPhone with textures. Stage C operational — local Windows Tuanjie export + CI macOS `xcodebuild` (workflow_dispatch only). `test:sast` removed pending GameCI rebuild.
 
 ## Testing
 
-- Simulator destinations only (no signing), e.g. `-destination 'platform=iOS Simulator,name=iPhone 15,OS=latest'`. UI tests need a booted simulator.
+- **No active test job.** The original Swift simulator tests + CodeQL Swift analysis are removed (`test:sast` job deleted — no Swift build target). Unity tests pending Stage C GameCI rebuild (ADR-010).
+- When restored: simulator destinations only (no signing), e.g. `-destination 'platform=iOS Simulator,name=iPhone 15,OS=latest'`. UI tests need a booted simulator.
 - Coverage: `-enableCodeCoverage YES`; export reports from the `.xcresult` via `xcrun xccov view --report --json <path.xcresult>`.
 
 ## Pages + AltStore/SideStore feed
 
 - Deploy with the modern flow: `permissions: { pages: write, id-token: write }`, `environment: github-pages`, `actions/upload-pages-artifact` → `actions/deploy-pages`. Repo Pages setting must be **Source: GitHub Actions**, not a branch.
 - Serve `apps.json` at the site root → source URL `https://mcc-mak.github.io/ios-app/apps.json`.
-- Regenerate `apps.json` on every release via `codebase/scripts/generate_apps_json.sh` (called by the `deploy:docs` job after `release:ipa` succeeds). Per-app entry, at minimum: `name`, `bundleIdentifier`, `version`, `versionDate` (ISO 8601), `downloadURL`, `size` (bytes). `version` / `versionDate` / `size` / `downloadURL` MUST come from the **actual release asset** (+ `manifest.json`), not be guessed. `downloadURL` = `https://github.com/<owner>/<repo>/releases/download/<tag>/<App>-<Ver>.ipa`. Feed-level metadata comes from `codebase/app.config.json`. **(v2.0.0: with `release:ipa` disabled, `apps.json` regenerates from the latest existing release or stays `apps: []` until Stage C ships a Unity-built `.ipa`.)**
+- Regenerate `apps.json` on every deploy via `codebase/scripts/generate_apps_json.sh` (called by the `deploy:docs` job). Per-app entry, at minimum: `name`, `bundleIdentifier`, `version`, `versionDate` (ISO 8601), `downloadURL`, `size` (bytes). `version` / `versionDate` / `size` / `downloadURL` MUST come from the **actual release asset** (+ `manifest.json`), not be guessed. `downloadURL` = `https://github.com/<owner>/<repo>/releases/download/<tag>/<App>-<Ver>.ipa`. Feed-level metadata comes from `codebase/app.config.json`. If no `v*` release exists the feed is legitimately `apps: []`.
 - **Releases, not artifacts, drive the feed.** A CI artifact never appears in `apps.json`; if no `v*` release exists the feed is legitimately `apps: []`. Never "fix" that by guessing a version — publish a tag.
 - The landing page (`codebase/site/index.html`) is the single user-facing home for **all** deployment methods and their step-by-step procedures (IPA download, AltStore/SideStore source, Sideloadly, Xcode, Actions artifacts) plus the 7-day expiry FAQ. When a method changes, update the site; `README.md` is the long-form mirror.
 - The site must never dead-end on a disabled button: when `apps.json` is empty or unreachable, the download button falls back to `https://github.com/<owner>/<repo>/releases/latest` and explains that releases (not artifacts) populate the feed.
 
 ## Conventions
 
-- Semver release tags: `v1.2.3`; the `release:ipa` job runs on `push: tags: ['v*']`.
-- Reuse `codebase/scripts/build_unsigned_ipa.sh` from workflows rather than re-running `xcodebuild` inline.
-- SwiftLint config at `codebase/.swiftlint.yml`; invoke with `--config codebase/.swiftlint.yml` when linting. CodeQL Swift analysis requires the unsigned build to succeed first.
+- Semver release tags: `v1.2.3`; releases are created by the `build:ipa` job (workflow_dispatch with `release_tag` input) or manually.
+- Reuse `codebase/scripts/build_unity_ipa.sh` from workflows rather than re-running `xcodebuild` inline. The CI calls it in `XCODEBUILD_ONLY=1` mode against the pre-exported Xcode project.
+- `build:ipa` is NOT auto-run on push — `if: github.event_name == 'workflow_dispatch'` only. It requires a pre-uploaded `xcode-export-*` release containing the Xcode project tarball.
+- Commit messages in Traditional Chinese (繁體中文); keep Conventional Commits prefixes (`feat:`, `fix:`, `docs:`, `chore:`) and code/paths/identifiers as-is.
 
 ## References
 

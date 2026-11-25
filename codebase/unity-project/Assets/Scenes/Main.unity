@@ -233,6 +233,7 @@ GameObject:
   - component: {fileID: 2101336111}
   - component: {fileID: 2101336114}
   - component: {fileID: 2101336115}
+  - component: {fileID: 2101336116}
   m_Layer: 0
   m_HasEditorInfo: 1
   m_Name: Main Camera
@@ -257,6 +258,8 @@ MonoBehaviour:
   camera: {fileID: 2101336112}
   overrideStartPos: 0
   startLocalPos: {x: 0, y: 0, z: 80}
+  useManualStartWorldPos: 0
+  manualStartWorldPos: {x: -296.9, y: -65.44, z: 10.37}
 --- !u!20 &2101336112
 Camera:
   m_ObjectHideFlags: 0
@@ -340,8 +343,10 @@ MonoBehaviour:
   startPosition: {x: 947, y: 0, z: 124}
   startYaw: 0
   startPitch: 55
-  moveSpeed: 5
+  moveSpeed: 8.75
   sprintMultiplier: 2
+  jumpSpeed: 5
+  jumpCooldown: 0.5
   lookSensitivityTouch: 0.2
   lookSensitivityMouse: 2
   minPitch: -85
@@ -391,6 +396,21 @@ CharacterController:
   m_SkinWidth: 0.08
   m_MinMoveDistance: 0.001
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &2101336116
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2101336109}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 11b1043df6589a946818e92bd321f67d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  maxLines: 25
+  fontSizeRatio: 0.022
+  show: 1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
