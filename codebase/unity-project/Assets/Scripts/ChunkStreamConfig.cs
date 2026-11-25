@@ -71,6 +71,18 @@ namespace HKGrid.Streaming
                  "150m 分塊約 19m/格。越大越精細但頂點越多")]
         public int groundFillSampleResolution = 8;
 
+        [Header("v2.4.0: 預載入(載入頁)")]
+        [Tooltip("啟用後:場景啟動時顯示載入頁,載入所有分塊完成後才顯示場景。" +
+                 "修正玩家在分塊載入前墜落穿模問題(多圖幅分塊集必需)。")]
+        public bool preloadAllChunks = true;
+        [Tooltip("預載入完成後是否保持所有分塊載入(停用半徑卸載)。" +
+                 "true=不卸載(記憶體高,無遠處彈出);false=恢復半徑串流(記憶體扁平,遠處卸載)。")]
+        public bool keepAllChunksAfterPreload = true;
+        [Tooltip("預載入期間 glTFast 每幀載入預算(目標幀時間比例)。0.5=50%(載入較快但幀率下降," +
+                 "載入頁期間可接受)。預載入完成後恢復 gltfFrameBudget。")]
+        [Range(0.01f, 1f)]
+        public float preloadDeferBudget = 0.5f;
+
         [Header("除錯")]
         public bool drawChunkGizmos = false;
         public bool logStreamingEvents = false;

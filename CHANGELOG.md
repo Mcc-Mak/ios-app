@@ -9,6 +9,42 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.4.0] - 2026-11-25
+
+### 新增(4 圖幅 inter-tile 移動 + 載入頁)
+
+**A. 4 圖幅合併分塊集(`11-NW-15-merged-l19-nofloat`)**
+
+- 15A + 15B + 15C + 15D 全部以 l19-nofloat 轉換並合併為單一分塊集:**80 分塊,2231.33 MB,25,835,393 三角面**。
+- 使用者可從 15B 步行至 15A(西)/ 15C(北)/ 15D(東北),實現 inter-tile 移動(v2.3.0 僅含 15B,無法跨圖幅)。
+- 4 圖幅以 2×2 四象限排列,邊緣相接(15A=西南, 15B=東南, 15C=西北, 15D=東北),幾何已驗證正確。
+
+**B. 載入頁(預載入模式)— `ChunkStreamBootstrapper.cs` + `ChunkStreamer.cs` + `ChunkStreamConfig.cs`**
+
+- 新增 `preloadAllChunks` 設定(預設 `true`):場景啟動時顯示全螢幕載入頁,載入**所有分塊**完成後才顯示場景。
+- 修正「玩家在分塊載入前墜落穿模」問題(分塊非同步載入期間玩家已開始施重力 → 落入地面下方)。
+- `ChunkStreamer` 新增 `PreloadMode`:忽略半徑載入全部分塊、停用卸載;`IsPreloadComplete` 判定(含失敗分塊容錯)。
+- `preloadDeferBudget`(預設 0.5):預載入期間提高 glTFast 每幀載入預算至 50%(載入頁可接受幀率下降),完成後恢復 `gltfFrameBudget`(0.15)。
+- `keepAllChunksAfterPreload`(預設 `true`):預載入完成後保持所有分塊載入(停用半徑卸載,無遠處彈出);設為 `false` 則恢復半徑串流(記憶體扁平但遠處卸載)。
+- 載入頁 UI:全螢幕深色背景 +「載入中」標題 +「X / 80 分塊 (NN%)」進度文字 + 進度條(OnGUI 實作,無需場景變更)。
+- 逾時安全網:預載入超過 300 秒強制完成(避免單一分塊失敗導致永久卡在載入頁)。
+
+**C. 載入頁期間停用玩家控制器**
+
+- 預載入期間 `TouchPlayerController.enabled = false`(不施重力、不接受輸入),避免攝影機在分塊載入前墜落。
+- 預載入完成後重新啟用並呼叫 `OnSpawned()`(地面已存在,射線命中)。
+
+**D. 雜項**
+
+- `DebugOverlay.cs`:`Q` 鍵切換覆蓋層顯示/隱藏(桌面 Unity Editor 用)。
+- `ChunkStreamConfig.asset`:補入 `preloadAllChunks`、`keepAllChunksAfterPreload`、`preloadDeferBudget` 欄位。
+
+### 已知問題
+
+- 4 圖幅 l19-nofloat 分塊集 2231 MB,IPA 預估 ~1.7-1.8 GB(超出原 800 MB 目標;800 MB 目標原為 15B-only)。
+- `keepAllChunksAfterPreload=true` 時 80 分塊同時駐留記憶體 ~2+ GB,iPhone 可能 OOM;若發生需降級部分圖幅至 l18。
+- 11-NW-15B 東北角部分分塊缺失(intra-grid 問題,暫不修正)。
+
 ## [v2.3.0] - 2026-11-25
 
 ### 新增(l19 高解析度攝影測量 + 地面無洞修正)

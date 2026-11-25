@@ -28,5 +28,8 @@ MonoBehaviour:
   groundFillColor: {r: 0.35, g: 0.37, b: 0.28, a: 1}
   groundFillBelowOffset: 0.05
   groundFillSampleResolution: 8
+  preloadAllChunks: 1
+  keepAllChunksAfterPreload: 1
+  preloadDeferBudget: 0.5
   drawChunkGizmos: 1
   logStreamingEvents: 1

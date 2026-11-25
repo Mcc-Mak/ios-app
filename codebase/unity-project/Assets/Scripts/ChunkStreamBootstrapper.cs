@@ -46,6 +46,14 @@ namespace HKGrid.Streaming
         // v2.2.15: 螢幕診斷覆蓋層(iOS 藍畫面診斷)
         private HKGrid.Debugging.DebugOverlay _dbg;
 
+        // v2.4.0: 預載入 + 載入頁
+        private bool _preloading = false;
+        private bool _showLoadingScreen = false;
+        private Vector3 _pendingStartWorld;        // 預載入完成後用的 spawn 位置
+        private TouchPlayerController _player;     // 玩家控制器(預載入期間停用)
+        private float _preloadStartTime;
+        private const float PRELOAD_TIMEOUT = 300f; // 5 分鐘逾時安全網
+
         private void Awake()
         {
             if (config == null)
@@ -182,17 +190,6 @@ namespace HKGrid.Streaming
                     Debug.Log($"[Bootstrapper] 手動起始位置覆寫(精確): {startWorld}");
                 }
 
-                // 設定攝影機並觸發 TouchPlayerController 初始地面搜尋
-                var player = camera.GetComponent<TouchPlayerController>();
-                if (player != null)
-                {
-                    player.OnSpawned(startWorld);
-                }
-                else
-                {
-                    camera.transform.position = startWorld + Vector3.up * 50f;
-                }
-
                 // v2.2.3: 設定可視距離 + 霧(隱藏遠處分塊彈出,降低渲染負載)
                 camera.farClipPlane = config.cameraFarClip;
                 RenderSettings.fog = true;
@@ -200,6 +197,41 @@ namespace HKGrid.Streaming
                 RenderSettings.fogStartDistance = config.cameraFarClip * 0.78f;  // ~350m
                 RenderSettings.fogEndDistance = config.cameraFarClip;             // ~450m
                 RenderSettings.fogColor = camera.backgroundColor;  // 與天色一致
+
+                _player = camera.GetComponent<TouchPlayerController>();
+
+                // ── v2.4.0: 預載入模式 ──
+                // 顯示載入頁,載入所有分塊完成後才顯示場景。
+                // 修正:分塊非同步載入期間玩家已 OnSpawned → 施重力 → 地面不存在 → 墜落穿模。
+                if (config.preloadAllChunks)
+                {
+                    _streamer.PreloadMode = true;
+                    _preloading = true;
+                    _showLoadingScreen = true;
+                    _pendingStartWorld = startWorld;
+                    _preloadStartTime = Time.time;
+
+                    // 預載入期間使用較高載入預算(載入頁可接受幀率下降)
+                    var daPreload = FindObjectOfType<TimeBudgetPerFrameDeferAgent>();
+                    if (daPreload != null) daPreload.SetFrameBudget(config.preloadDeferBudget);
+
+                    // 停用玩家控制器(避免分塊載入前施重力墜落)
+                    if (_player != null) _player.enabled = false;
+
+                    if (_dbg != null)
+                        _dbg.SetManifestStatus("預載入中: 0/" + _streamer.TotalChunkCount + " 分塊");
+
+                    Debug.Log($"[Bootstrapper] 預載入模式啟用: {_streamer.TotalChunkCount} 分塊, " +
+                              $"deferBudget={config.preloadDeferBudget}, keepAll={config.keepAllChunksAfterPreload}");
+                }
+                else
+                {
+                    // 傳統模式:立即顯示場景,半徑串流(單圖幅快速啟動)
+                    if (_player != null)
+                        _player.OnSpawned(startWorld);
+                    else
+                        camera.transform.position = startWorld + Vector3.up * 50f;
+                }
 
                 _ready = true;
             }
@@ -437,13 +469,114 @@ namespace HKGrid.Streaming
 
         private void Update()
         {
-            if (_ready)
+            if (!_ready) return;
+
+            _streamer.Tick();
+
+            // v2.4.0: 預載入完成判定 — 所有分塊載入完成後才顯示場景
+            if (_preloading)
             {
-                _streamer.Tick();
-                // v2.2.15: 螢幕診斷 — 更新分塊計數
+                // 更新載入頁進度(供 DebugOverlay 與載入頁 OnGUI 顯示)
+                if (_dbg != null)
+                    _dbg.SetManifestStatus("預載入中: " + _streamer.LoadedCount + "/" +
+                        _streamer.TotalChunkCount + " 分塊" +
+                        (_streamer.FailedCount > 0 ? " (失敗 " + _streamer.FailedCount + ")" : ""));
+                if (_dbg != null)
+                    _dbg.SetChunkCounts(_streamer.LoadedCount, _streamer.LoadingCount);
+
+                bool complete = _streamer.IsPreloadComplete;
+                bool timeout = Time.time - _preloadStartTime > PRELOAD_TIMEOUT;
+
+                if (complete || timeout)
+                {
+                    if (timeout && !complete)
+                        Debug.LogWarning($"[Bootstrapper] 預載入逾時({PRELOAD_TIMEOUT}s):" +
+                            $" 已載入 {_streamer.LoadedCount}/{_streamer.TotalChunkCount}" +
+                            $", 失敗 {_streamer.FailedCount}, 載入中 {_streamer.LoadingCount}");
+
+                    // 預載入完成 — 顯示場景
+                    _preloading = false;
+                    _showLoadingScreen = false;
+
+                    // 恢復正常載入預算
+                    var da = FindObjectOfType<TimeBudgetPerFrameDeferAgent>();
+                    if (da != null) da.SetFrameBudget(config.gltfFrameBudget);
+
+                    // keepAllChunksAfterPreload=false → 恢復半徑串流(遠處卸載)
+                    // keepAllChunksAfterPreload=true  → 保持 PreloadMode(不卸載,全部分塊駐留)
+                    if (!config.keepAllChunksAfterPreload)
+                        _streamer.PreloadMode = false;
+
+                    // 啟用玩家控制器 + 定位至 spawn(地面已存在,射線命中)
+                    if (_player != null)
+                    {
+                        _player.enabled = true;
+                        _player.OnSpawned(_pendingStartWorld);
+                    }
+
+                    if (_dbg != null)
+                        _dbg.SetManifestStatus("預載入完成: " + _streamer.LoadedCount + "/" +
+                            _streamer.TotalChunkCount + " 分塊已載入");
+
+                    Debug.Log($"[Bootstrapper] 預載入完成: {_streamer.LoadedCount}/{_streamer.TotalChunkCount}" +
+                              $" 分塊, keepAll={config.keepAllChunksAfterPreload}, 耗時 {Time.time - _preloadStartTime:F1}s");
+                }
+            }
+            else
+            {
+                // v2.2.15: 螢幕診斷 — 更新分塊計數(一般串流模式)
                 if (_dbg != null)
                     _dbg.SetChunkCounts(_streamer.LoadedCount, _streamer.LoadingCount);
             }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // v2.4.0: 載入頁(預載入期間顯示,隱藏分塊彈出)
+        // ════════════════════════════════════════════════════════════════
+        private void OnGUI()
+        {
+            if (!_showLoadingScreen) return;
+
+            // 全螢幕深色背景(隱藏分塊彈出)
+            GUI.color = new Color(0.05f, 0.06f, 0.09f, 0.98f);
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+
+            int loaded = _streamer != null ? _streamer.LoadedCount : 0;
+            int total = _streamer != null ? _streamer.TotalChunkCount : 0;
+            float pct = total > 0 ? (float)loaded / total : 0f;
+
+            var titleStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = Mathf.Max(24, Screen.height / 22),
+                alignment = TextAnchor.MiddleCenter,
+            };
+            titleStyle.normal.textColor = Color.white;
+
+            var detailStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = Mathf.Max(16, Screen.height / 36),
+                alignment = TextAnchor.MiddleCenter,
+            };
+            detailStyle.normal.textColor = new Color(0.75f, 0.82f, 0.92f);
+
+            Rect titleRect = new Rect(0, Screen.height * 0.40f, Screen.width, Screen.height * 0.08f);
+            Rect detailRect = new Rect(0, Screen.height * 0.50f, Screen.width, Screen.height * 0.05f);
+
+            GUI.Label(titleRect, "載入中", titleStyle);
+            GUI.Label(detailRect, loaded + " / " + total + " 分塊  (" + (pct * 100f).ToString("F0") + " %)", detailStyle);
+
+            // 進度條
+            float barW = Screen.width * 0.6f;
+            float barH = Mathf.Max(6f, Screen.height * 0.008f);
+            float barX = (Screen.width - barW) * 0.5f;
+            float barY = Screen.height * 0.58f;
+
+            GUI.color = new Color(0.18f, 0.20f, 0.26f, 1f);
+            GUI.DrawTexture(new Rect(barX, barY, barW, barH), Texture2D.whiteTexture);
+            GUI.color = new Color(0.30f, 0.62f, 1.0f, 1f);
+            GUI.DrawTexture(new Rect(barX, barY, barW * pct, barH), Texture2D.whiteTexture);
+            GUI.color = Color.white;
         }
 
         private void OnDestroy()

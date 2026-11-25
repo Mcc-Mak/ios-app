@@ -38,6 +38,8 @@ namespace HKGrid.Streaming
         private readonly Dictionary<string, LoadedChunk> _loaded = new Dictionary<string, LoadedChunk>();
         // 載入中(防重複觸發)
         private readonly HashSet<string> _loading = new HashSet<string>();
+        // v2.4.0: 載入失敗的分塊(預載入完成判定用,避免單一失敗永久卡住)
+        private readonly HashSet<string> _failed = new HashSet<string>();
 
         // 攝影機在「本地網格座標」(Z-up,已置中)的位置,每幀更新
         private Vector3 _cameraLocalPos;
@@ -45,6 +47,13 @@ namespace HKGrid.Streaming
 
         public int LoadedCount => _loaded.Count;
         public int LoadingCount => _loading.Count;
+
+        // v2.4.0: 預載入模式(忽略半徑載入全部分塊、不卸載)
+        public bool PreloadMode { get; set; } = false;
+        public int TotalChunkCount => _manifest.chunks.Count;
+        public int FailedCount => _failed.Count;
+        public bool IsPreloadComplete =>
+            _loaded.Count + _failed.Count >= _manifest.chunks.Count && _loading.Count == 0;
 
         /// <summary>v2.2.12: 分塊載入完成時觸發(網格+碰撞器已就緒)。用於逐塊建立地面填補。</summary>
         public event Action<ChunkRecord, GameObject> OnChunkLoaded;
@@ -77,6 +86,22 @@ namespace HKGrid.Streaming
         /// <summary>每幀由 Bootstrapper 呼叫:更新攝影機本地座標並觸發載入/卸載。</summary>
         public void Tick()
         {
+            // v2.4.0: 預載入模式 — 載入所有分塊(忽略半徑)、不卸載
+            if (PreloadMode)
+            {
+                int startedThisFrame = 0;
+                foreach (var rec in _manifest.chunks)
+                {
+                    if (_loaded.ContainsKey(rec.id) || _loading.Contains(rec.id) || _failed.Contains(rec.id)) continue;
+                    if (startedThisFrame >= _config.maxLoadsPerFrame) break;
+                    LoadChunkAsync(rec);
+                    startedThisFrame++;
+                    if (_config.logStreamingEvents)
+                        Debug.Log($"[ChunkStreamer] 預載入 {rec.id} ({rec.bytes / 1e6f:F2} MB, {rec.triangles} tris)");
+                }
+                return;
+            }
+
             // 將攝影機世界座標轉換為本地網格座標(Z-up,已置中)
             // world = _worldRoot.rotation * local  =>  local = inverse(_worldRoot.rotation) * world
             Vector3 camWorld = _camera.transform.position;
@@ -154,6 +179,7 @@ namespace HKGrid.Streaming
                 if (!ok)
                 {
                     Debug.LogWarning($"[ChunkStreamer] glTF 載入失敗: {rec.file} (gltf.Load returned false)");
+                    _failed.Add(rec.id);
                     return;
                 }
 
@@ -175,6 +201,7 @@ namespace HKGrid.Streaming
                     Debug.LogWarning($"[ChunkStreamer] glTF 實例化失敗: {rec.file} (InstantiateMainSceneAsync returned false)");
                     UnityEngine.Object.Destroy(chunkGo);
                     gltf.Dispose();
+                    _failed.Add(rec.id);
                     return;
                 }
 
@@ -207,6 +234,7 @@ namespace HKGrid.Streaming
             catch (Exception e)
             {
                 Debug.LogError($"[ChunkStreamer] 載入 {rec.id} 例外: {e}");
+                _failed.Add(rec.id);
             }
             finally
             {

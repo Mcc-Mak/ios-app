@@ -81,6 +81,12 @@ namespace HKGrid.Debugging
 
         private void Update()
         {
+            // Q 鍵切換覆蓋層顯示/隱藏(桌面 Unity Editor 用;iOS 無實體鍵盤不觸發)
+            if (Input.GetKeyDown(KeyCode.Q))
+            {
+                show = !show;
+                Debug.Log("[DebugOverlay] 覆蓋層:" + (show ? "顯示" : "隱藏"));
+            }
             if (Time.unscaledTime - _lastCamPosUpdate > 0.1f)
             {
                 _lastCamPosUpdate = Time.unscaledTime;
