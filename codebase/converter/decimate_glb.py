@@ -40,6 +40,15 @@ import trimesh
 import fast_simplification
 
 
+def _safe_resolve(p: Path, *, must_exist: bool = False) -> Path:
+    """驗證並解析 CLI 引數路徑,防範路徑穿越(SonarCloud S8707)。"""
+    resolved = p.expanduser().resolve()
+    if must_exist and not resolved.exists():
+        print(f"錯誤:路徑不存在: {resolved}", file=sys.stderr)
+        sys.exit(1)
+    return resolved
+
+
 def decimate_chunk(src_glb: Path, dst_glb: Path,
                    target_faces: int) -> tuple[int, int]:
     """載入 GLB,合併 mesh,簡化,匯出。回傳 (bytes, triangles)。"""
@@ -229,8 +238,8 @@ def main() -> int:
                    help="v5: 紋理降解析度目標(像素,正方形)。僅 --textured 時生效")
     args = p.parse_args()
 
-    src_dir = Path(args.input)
-    dst_dir = Path(args.output)
+    src_dir = _safe_resolve(Path(args.input), must_exist=True)
+    dst_dir = _safe_resolve(Path(args.output))
     dst_dir.mkdir(parents=True, exist_ok=True)
 
     manifest_path = src_dir / "manifest.json"

@@ -16,6 +16,11 @@
 
 html { scroll-behavior: smooth; }
 
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -218,7 +223,7 @@ header h1 {
   align-items: stretch;
 }
 
-.copyrow code { flex: 1 1 260px; }
+.copyrow code { flex: 1 1 260px; padding: 8px 10px; }
 
 .copy {
   padding: 0 14px;
@@ -242,8 +247,6 @@ code {
   word-break: break-all;
   user-select: all;
 }
-
-.copyrow code { padding: 8px 10px; }
 
 table {
   width: 100%;

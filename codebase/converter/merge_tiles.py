@@ -21,6 +21,41 @@ import sys
 from pathlib import Path
 
 
+def _safe_resolve(p: Path, *, must_exist: bool = False) -> Path:
+    """驗證並解析 CLI 引數路徑,防範路徑穿越(SonarCloud S8707)。"""
+    resolved = p.expanduser().resolve()
+    if must_exist and not resolved.exists():
+        print(f"ERROR:路徑不存在: {resolved}", file=sys.stderr)
+        sys.exit(1)
+    return resolved
+
+
+def _parse_tile_specs(specs: list[str]) -> list[tuple[str, Path]] | None:
+    """解析 --tiles 引數(格式 Code:Path)。失敗回傳 None。"""
+    tiles = []
+    for spec in specs:
+        if ":" not in spec:
+            print(f"ERROR: --tiles 格式須為 Code:Path,收到 {spec!r}", file=sys.stderr)
+            return None
+        code, path = spec.split(":", 1)
+        tiles.append((code, Path(path)))
+    return tiles
+
+
+def _load_manifests(tiles: list[tuple[str, Path]]) -> list[tuple[str, Path, dict]] | None:
+    """載入各圖幅的 manifest.json。失敗回傳 None。"""
+    manifests = []
+    for code, d in tiles:
+        mf = d / "manifest.json"
+        if not mf.exists():
+            print(f"ERROR: {code} 的 manifest.json 不存在: {mf}", file=sys.stderr)
+            return None
+        m = json.loads(mf.read_text(encoding="utf-8"))
+        manifests.append((code, d, m))
+        print(f"  {code}: {m['chunkCount']} chunks, origin={m.get('origin')}")
+    return manifests
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="合併多圖幅分塊為單一 manifest + .glb 集")
     p.add_argument("--tiles", nargs="+", required=True,
@@ -30,28 +65,16 @@ def main() -> int:
                    help="合併後的 source 名稱(預設 11-NW-15-merged)")
     args = p.parse_args()
 
-    out = Path(args.output)
+    out = _safe_resolve(Path(args.output))
     out.mkdir(parents=True, exist_ok=True)
 
-    # 解析 --tiles
-    tiles = []
-    for spec in args.tiles:
-        if ":" not in spec:
-            print(f"ERROR: --tiles 格式須為 Code:Path,收到 {spec!r}", file=sys.stderr)
-            return 1
-        code, path = spec.split(":", 1)
-        tiles.append((code, Path(path)))
-
-    # 驗證 + 載入
-    manifests = []
-    for code, d in tiles:
-        mf = d / "manifest.json"
-        if not mf.exists():
-            print(f"ERROR: {code} 的 manifest.json 不存在: {mf}", file=sys.stderr)
-            return 1
-        m = json.loads(mf.read_text(encoding="utf-8"))
-        manifests.append((code, d, m))
-        print(f"  {code}: {m['chunkCount']} chunks, origin={m.get('origin')}")
+    # 解析 + 載入(抽出為輔助函式以降低認知複雜度,SonarCloud S3776)
+    tiles = _parse_tile_specs(args.tiles)
+    if tiles is None:
+        return 1
+    manifests = _load_manifests(tiles)
+    if manifests is None:
+        return 1
 
     # 全域原點 = 第一個圖幅的 origin
     global_origin = manifests[0][2]["origin"]
@@ -109,7 +132,7 @@ def main() -> int:
         "crs": manifests[0][2].get("crs", "EPSG:2326"),
         "origin": global_origin,
         "tileSize": [750, 600, 150],  # 近似值(各圖幅略有差異)
-        "gridCols": 10,  # 2 圖幅 × 5 cols
+        "gridCols": 15,  # v2.6.1: 3 圖幅 × 5 cols
         "gridRows": 8,   # 2 圖幅 × 4 rows
         "chunkCount": len(all_chunks),
         "totalBytes": total_bytes,
@@ -122,7 +145,7 @@ def main() -> int:
     mf_out = out / "manifest.json"
     mf_out.write_text(json.dumps(merged_manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"\n=== 合併完成 ===")
+    print("\n=== 合併完成 ===")
     print(f"  圖幅數: {len(tiles)}")
     print(f"  分塊數: {len(all_chunks)}")
     print(f"  .glb 檔: {glb_count}")

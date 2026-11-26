@@ -33,7 +33,7 @@
         <p class="muted small" id="meta">正在讀取 AltStore/SideStore 饋流(apps.json)…</p>
         <div class="actions">
           <!-- 預設即指向 releases/latest:即使饋流為空也不會出現無法點擊的按鈕。 -->
-          <a id="download" class="btn primary" href="https://github.com/Mcc-Mak/ios-app/releases/latest" rel="noopener">前往最新發行版本</a>
+          <a id="download-btn" class="btn primary" href="https://github.com/Mcc-Mak/ios-app/releases/latest" rel="noopener">前往最新發行版本</a>
           <a class="btn secondary" href="https://github.com/Mcc-Mak/ios-app/releases" rel="noopener">所有發行版本</a>
         </div>
       </div>
@@ -232,7 +232,7 @@
       var LATEST = 'https://github.com/' + REPO + '/releases/latest';
       var versionEl = document.getElementById('version');
       var metaEl = document.getElementById('meta');
-      var downloadEl = document.getElementById('download');
+      var downloadEl = document.getElementById('download-btn');
       var noteEl = document.getElementById('feed-note');
       var emptyEl = document.getElementById('no-release');
       var sourceEl = document.getElementById('source-url');
@@ -292,7 +292,7 @@
       var copyBtn = document.querySelector('.copy');
       if (copyBtn) {
         copyBtn.addEventListener('click', function () {
-          var target = document.querySelector(copyBtn.getAttribute('data-copy'));
+          var target = document.querySelector(copyBtn.dataset.copy);
           var text = target ? target.textContent.trim() : '';
           var done = function () {
             copyBtn.textContent = '已複製';
@@ -305,8 +305,9 @@
             ta.value = text;
             document.body.appendChild(ta);
             ta.select();
-            try { document.execCommand('copy'); done(); } catch (e) {}
-            document.body.removeChild(ta);
+            // execCommand 已棄用且可能拋錯(瀏覽器不支援);忽略並回退至剪貼簿 API
+            try { document.execCommand('copy'); done(); } catch (e) { /* 已棄用 API,忽略 */ }
+            ta.remove();
           }
         });
       }

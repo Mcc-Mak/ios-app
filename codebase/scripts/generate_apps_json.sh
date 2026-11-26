@@ -91,12 +91,10 @@ app_name=""
 manifest_asset=$(printf '%s' "$release_json" | jq -r '.assets[] | select(.name=="manifest.json") | .name' | head -n1 || true)
 if [[ -n "$manifest_asset" ]]; then
   tmp=$(mktemp -d)
-  if gh release download "$tag" --repo "$REPO" --pattern "manifest.json" --dir "$tmp" --clobber >/dev/null 2>&1; then
-    if [[ -f "$tmp/manifest.json" ]]; then
-      version=$(jq -r '.version // ""'           "$tmp/manifest.json")
-      bundle_id=$(jq -r '.bundleIdentifier // ""' "$tmp/manifest.json")
-      app_name=$(jq -r '.appName // ""'           "$tmp/manifest.json")
-    fi
+  if gh release download "$tag" --repo "$REPO" --pattern "manifest.json" --dir "$tmp" --clobber >/dev/null 2>&1 && [[ -f "$tmp/manifest.json" ]]; then
+    version=$(jq -r '.version // ""'           "$tmp/manifest.json")
+    bundle_id=$(jq -r '.bundleIdentifier // ""' "$tmp/manifest.json")
+    app_name=$(jq -r '.appName // ""'           "$tmp/manifest.json")
   fi
   rm -rf "$tmp"
 fi

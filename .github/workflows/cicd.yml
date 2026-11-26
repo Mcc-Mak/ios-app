@@ -8,7 +8,8 @@
 #   - 分塊資料(.glb)由本機 export_xcode_project.ps1 -ChunksSource 注入至
 #     StreamingAssets/Chunks/,烘焙進 Xcode 匯出成品(不再使用 fetch_chunks.sh)。
 #   - test:sast 已移除(原 Swift/SceneKit App 已不存在;待 Stage C 以 GameCI 重建)。
-#   - deploy:docs 於 push 及 workflow_dispatch 皆執行,維護入口網站與 apps.json 饋流。
+#   - deploy:docs [v2.6.1 停用] 儲存庫已改為私有,GitHub Pages 需付費方案;
+#     入口網站 + apps.json 饋流不再部署。IPA 直接由 GitHub Releases 下載。
 #
 # 階段順序(每個 job 顯示名稱皆為「*:*」):
 #   test:sast    → [已移除] 原 Swift/SceneKit 測試已不存在;待 Stage C GameCI 重建
@@ -22,7 +23,7 @@
 #   - push 標籤 v*(部署入口網站)
 #   - pull_request 至 main(目前無建置,僅觸發 workflow 供觀察)
 #   - 每日排程(健康檢查)
-#   - workflow_dispatch(手動觸發 build:ipa + deploy:docs)
+#   - workflow_dispatch(手動觸發 build:ipa;deploy:docs 已停用)
 #     輸入:xcode_export_tag(Xcode 匯出 release 標籤)、release_tag(目標發行標籤)
 #
 # 零 Apple 機密:僅使用內建 GITHUB_TOKEN。所有 xcodebuild 皆未簽署:
@@ -93,7 +94,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 選擇 Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90  # v1(釘選 commit SHA)
         with:
           xcode-version: '16.2'
 
@@ -103,9 +104,10 @@ jobs:
       - name: 下載 Xcode 匯出資產
         env:
           GH_TOKEN: ${{ github.token }}
+          XCODE_EXPORT_TAG: ${{ inputs.xcode_export_tag }}
         run: |
           set -euo pipefail
-          tag="${{ inputs.xcode_export_tag }}"
+          tag="$XCODE_EXPORT_TAG"
           echo "從 release $tag 下載 Xcode 匯出資產..."
           mkdir -p build/xcode-download
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
@@ -192,9 +194,10 @@ jobs:
       - name: 上傳 .ipa 至目標 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          tag="${{ inputs.release_tag }}"
+          tag="$RELEASE_TAG"
           manifest="build/output/manifest.json"
           app=$(jq -r '.appName' "$manifest")
           ver=$(jq -r '.version' "$manifest")
@@ -220,36 +223,33 @@ jobs:
           echo "已上傳資產至 release $tag"
 
       - name: 寫入執行摘要
+        env:
+          XCODE_EXPORT_TAG: ${{ inputs.xcode_export_tag }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           {
             echo "### iOS 建置完成(未簽署)"
             echo ""
             echo "| 項目 | 值 |"
             echo "| --- | --- |"
-            echo "| Xcode 匯出來源 | \`${{ inputs.xcode_export_tag }}\` |"
-            echo "| 目標發行標籤 | \`${{ inputs.release_tag }}\` |"
+            echo "| Xcode 匯出來源 | \`${XCODE_EXPORT_TAG}\` |"
+            echo "| 目標發行標籤 | \`${RELEASE_TAG}\` |"
             echo "| IPA 檔名 | \`${{ steps.build.outputs.ipa-file-name }}\` |"
             echo "| App | ${{ steps.build.outputs.app-name }} |"
             echo "| 版本 | ${{ steps.build.outputs.app-version }} |"
             echo "| Bundle ID | ${{ steps.build.outputs.bundle-id }} |"
             echo ""
-            echo "- Release:https://github.com/${{ github.repository }}/releases/tag/${{ inputs.release_tag }}"
-            echo "- 入口網站:https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+            echo "- Release:https://github.com/${{ github.repository }}/releases/tag/${RELEASE_TAG}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------- deploy:docs
-  # [v2.1.0] build:ipa 原僅 workflow_dispatch 觸發;v2.2.15 擴充至 push v* 標籤。
-  # deploy 於 push 及 workflow_dispatch 皆執行;build 失敗時 deploy 仍執行(維護網站)。
-  # needs: build 確保 workflow_dispatch 時,deploy 在 build 完成後才執行(重新產生 apps.json)。
-  # push 時 build 被跳過(if 條件不成立),deploy 仍正常執行(skipped needs 視為成功)。
-  # v2.2.15: 若 workflow_dispatch 時 build 失敗,deploy 仍執行(維護網站不中斷)。
+  # [v2.6.1 停用] 儲存庫已改為私有,GitHub Pages 需付費方案(GitHub Pro/Team/Enterprise)。
+  # 入口網站(codebase/site/)與 apps.json 饋流不再部署。IPA 直接由 GitHub Releases 下載。
+  # 保留 job 定義以便日後儲存庫改回公開時重新啟用。
   deploy:
     name: 'deploy:docs'
     needs: build
-    if: |
-      always() && !cancelled()
-      && (needs.build.result == 'success' || needs.build.result == 'skipped' || needs.build.result == 'failure')
-      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: false  # v2.6.1: 儲存庫私有化,GitHub Pages 停用
     runs-on: ubuntu-latest
     permissions:
       contents: read

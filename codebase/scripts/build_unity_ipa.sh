@@ -40,6 +40,9 @@
 #   OUTPUT_DIR          — 最終產物目錄(預設:build/output)
 set -euo pipefail
 
+# 分隔線常數(避免重複字面值,SonarCloud S1192)
+SEP="═══════════════════════════════════════════════════════════════"
+
 # ─── 路徑與設定 ───────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -72,7 +75,7 @@ if [[ "$UNITY_EXPORT_ONLY" == "1" && "$XCODEBUILD_ONLY" == "1" ]]; then
   exit 1
 fi
 
-echo "═══════════════════════════════════════════════════════════════"
+echo "$SEP"
 echo " build_unity_ipa.sh — iOS 建置管線"
 if [[ "$XCODEBUILD_ONLY" == "1" ]]; then
   echo " 模式:XCODEBUILD_ONLY(僅 xcodebuild + 打包,CI macOS 用)"
@@ -81,14 +84,14 @@ elif [[ "$UNITY_EXPORT_ONLY" == "1" ]]; then
 else
   echo " 模式:全管線(Unity 匯出 + xcodebuild + 打包)"
 fi
-echo "═══════════════════════════════════════════════════════════════"
+echo "$SEP"
 echo "  Bundle ID        : $IOS_BUNDLE_ID"
 echo "  Version          : $IOS_VERSION (build $IOS_BUILD_NUMBER)"
 echo "  Product Name     : $IOS_PRODUCT_NAME"
 echo "  Min iOS Version  : $IOS_MIN_VERSION"
 echo "  Archive Dir      : $ARCHIVE_DIR"
 echo "  Output Dir       : $OUTPUT_DIR"
-echo "═══════════════════════════════════════════════════════════════"
+echo "$SEP"
 
 # ═══════════════════════════════════════════════════════════════
 # 階段 1:Unity 匯出(UNITY_EXPORT_ONLY 或全管線模式)
@@ -333,9 +336,9 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
 fi
 
 echo ""
-echo "═══════════════════════════════════════════════════════════════"
+echo "$SEP"
 echo " ✅ 建置完成"
-echo "═══════════════════════════════════════════════════════════════"
+echo "$SEP"
 echo "  IPA      : $IPA_PATH ($((IPA_SIZE / 1024 / 1024)) MB)"
 echo "  dSYM     : ${DSYM_PATH:-N/A}"
 echo "  manifest : $MANIFEST_PATH"

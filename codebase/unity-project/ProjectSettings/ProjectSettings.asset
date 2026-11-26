@@ -14,7 +14,7 @@ PlayerSettings:
   useOnDemandResources: 0
   accelerometerFrequency: 60
   companyName: McCmak
-  productName: 香港 FPS 小遊戲
+  productName: "\u9999\u6E2F FPS \u5C0F\u904A\u6232"
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.12156863, g: 0.12156863, b: 0.1254902, a: 1}
@@ -170,7 +170,7 @@ PlayerSettings:
   loadStoreDebugModeEnabled: 0
   visionOSBundleVersion: 1.0
   tvOSBundleVersion: 1.0
-  bundleVersion: 2.6.0
+  bundleVersion: 2.6.1
   preloadedAssets: []
   metroInputSource: 0
   wsaTransparentSwapchain: 0

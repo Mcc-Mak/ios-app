@@ -97,6 +97,9 @@ class ChunkRecord:
 
 
 # ────────────────────────── Stage 1: 探索 OSGB 結構 ──────────────────────────
+OSGB_SUFFIX = ".osgb"  # CSDI 攝影測量子檔副檔名(避免重複字面值,SonarCloud S1192)
+
+
 def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tuple[Path, list[SubTile]]:
     """
     輸入可能是 .zip 或已解壓目錄。回傳 (根目錄, 子圖幅清單)。
@@ -143,13 +146,13 @@ def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tu
         if lod_token is None:
             # root: 檔名不含 _L(單檔)
             chosen = sorted([f for f in d.iterdir()
-                             if f.suffix.lower() == ".osgb" and "_L" not in f.name])
+                             if f.suffix.lower() == OSGB_SUFFIX and "_L" not in f.name])
         else:
             # lNN: 檔名含 _L<N>_(l17+ 可能多檔,全部收集)
             chosen = sorted([f for f in d.iterdir()
-                             if f.suffix.lower() == ".osgb" and lod_token in f.name])
+                             if f.suffix.lower() == OSGB_SUFFIX and lod_token in f.name])
         if not chosen:
-            log.warning("子圖幅 %s 找不到 LOD=%s 的 .osgb(跳過)", d.name, lod)
+            log.warning("子圖幅 %s 找不到 LOD=%s 的 %s(跳過)", d.name, lod, OSGB_SUFFIX)
             continue
         # 座標從檔名解析(root 與 LNN 命名一致:Tile_+X_+Y[_LNN_NN].osgb)
         rm = re.match(r"Tile_\+(-?\d+)_\+(-?\d+)", chosen[0].name)
@@ -159,7 +162,7 @@ def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tu
         tile_x, tile_y = int(rm.group(1)), int(rm.group(2))
         # 收集所有 LOD 子檔(供參考)
         all_lod_files = sorted([f for f in d.iterdir()
-                                if f.suffix.lower() == ".osgb" and "_L" in f.name])
+                                if f.suffix.lower() == OSGB_SUFFIX and "_L" in f.name])
         subtiles.append(SubTile(
             index=idx, dir_name=d.name, tile_x=tile_x, tile_y=tile_y,
             lod_osgbs=chosen, all_lod_files=all_lod_files,
@@ -237,6 +240,9 @@ def _rewrite_mtl_to_basenames(obj_path: Path) -> None:
                     # 取 basename,處理 Windows/Unix 路徑與反斜線
                     tex_ref_norm = tex_ref.replace("\\", "/")
                     basename = tex_ref_norm.split("/")[-1]
+                    # 防範路徑穿越(SonarCloud S2083):拒絕含 .. 或路徑分隔符的 basename
+                    if ".." in basename or "/" in basename or "\\" in basename:
+                        continue
                     if basename != tex_ref:
                         new_lines.append(f"{parts[0]} {basename}")
                         changed = True
@@ -465,7 +471,7 @@ def build_chunk_glb(
             if horiz.sum() < 20:
                 deduped.append(g)
                 continue
-            horiz_idx = np.where(horiz)[0]
+            horiz_idx = np.nonzero(horiz)[0]
             h_xy = fc[horiz_idx, :2]
             h_z = fc[horiz_idx, 2]
 
@@ -527,7 +533,7 @@ def build_chunk_glb(
                     np.abs(va[:, 1] - bmax_rc[1]) < BOUNDARY_EPS,  # +Y
                 ]
                 for face_id in range(4):
-                    for vi in np.where(face_masks[face_id])[0]:
+                    for vi in np.nonzero(face_masks[face_id])[0]:
                         face_self_pts[face_id].append(va[vi])
                         face_self_idx[face_id].append((gi, int(vi)))
             snapped = 0
@@ -870,8 +876,8 @@ def main() -> int:
     # 網格座標正規化(用於 manifest 的 grid_x/grid_y)
     min_tx = min(s.tile_x for s in subtiles)
     min_ty = min(s.tile_y for s in subtiles)
-    grid_cols = len(set(s.tile_x for s in subtiles))
-    grid_rows = len(set(s.tile_y for s in subtiles))
+    grid_cols = len({s.tile_x for s in subtiles})
+    grid_rows = len({s.tile_y for s in subtiles})
 
     for i, s in enumerate(subtiles, 1):
         chunk_id = f"x{s.tile_x}_y{s.tile_y}"
@@ -909,8 +915,8 @@ def main() -> int:
                 floating_removal=not args.no_floating_removal,
                 neighbor_boundary_verts=nbr_bv if nbr_bv else None,
             )
-        except Exception as e:
-            log.error("  分塊建置失敗: %s", e)
+        except Exception:
+            log.exception("  分塊建置失敗")
             remaining_chunks -= 1
             continue
 

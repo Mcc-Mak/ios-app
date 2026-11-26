@@ -16,6 +16,15 @@ import sys
 from pathlib import Path
 
 
+def _safe_resolve(p: Path, *, must_exist: bool = False) -> Path:
+    """驗證並解析 CLI 引數路徑,防範路徑穿越(SonarCloud S8707)。"""
+    resolved = p.expanduser().resolve()
+    if must_exist and not resolved.exists():
+        print(f"❌ 路徑不存在: {resolved}", file=sys.stderr)
+        sys.exit(1)
+    return resolved
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="分塊大小驗證閘道")
     p.add_argument("--output", required=True, help="分塊輸出目錄")
@@ -24,8 +33,8 @@ def main() -> int:
     p.add_argument("--max-total-mb", type=float, default=200.0)
     args = p.parse_args()
 
-    output = Path(args.output).resolve()
-    manifest_path = Path(args.manifest) if args.manifest else output / "manifest.json"
+    output = _safe_resolve(Path(args.output), must_exist=True)
+    manifest_path = _safe_resolve(Path(args.manifest), must_exist=True) if args.manifest else output / "manifest.json"
 
     if not manifest_path.exists():
         print(f"❌ 找不到 manifest: {manifest_path}", file=sys.stderr)

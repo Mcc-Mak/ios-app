@@ -9,6 +9,55 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.6.1] - 2026-11-26
+
+### 修正(移除 6-SW-25B + 安全修復 + 停用 Pages)
+
+**A. 修正網格排列:移除 6-SW-25B,改為 5 圖幅 3×2 矩陣**
+
+- v2.6.0 誤將 6-SW-25B 納入(不屬於此 3D 場景)。
+- v2.6.1 改為 5 圖幅,正確的 3 欄 × 2 列排列(左至右、上至下):
+  - 上列:6-SE-16D、6-SE-17C
+  - 下列:6-SE-21A、6-SE-21B、6-SE-22A
+  - 6-SE-16C 位置(左上角)不需要,正確留空。
+- 重新合併:**100 分塊,478.45 MB,5,255,793 三角面**(v2.6.0 為 120 分塊 / 560.94 MB)。
+- 個別圖幅轉換成果沿用(快取),僅重新執行合併步驟。
+
+**B. 修復 SonarCloud 安全問題(13 項)**
+
+- `githubactions:S7630`(×5, BLOCKER):workflow `inputs.xcode_export_tag` / `inputs.release_tag` 改為透過環境變數傳入 run 區塊,防範腳本注入。
+- `pythonsecurity:S2083`(×1, BLOCKER):`convert_osgb_to_chunks.py` MTL 改寫時拒絕含 `..` 或路徑分隔符的 basename,防範路徑穿越。
+- `githubactions:S7637`(×1, HIGH):`maxim-lobanov/setup-xcode` 釘選至 commit SHA。
+- `pythonsecurity:S8707`(×6, HIGH):`decimate_glb.py` / `merge_tiles.py` / `validate_chunks.py` 新增 `_safe_resolve()` 驗證 CLI 路徑引數,防範路徑穿越。
+
+**C. 修復 SonarCloud 程式碼異味(17 項)**
+
+- `python:S6729`(×2):`np.where(cond)` → `np.nonzero(cond)`。
+- `python:S1192`(×1):`.osgb` 字面值抽取為 `OSGB_SUFFIX` 常數。
+- `python:S8572`(×1):`log.error("…%s", e)` → `log.exception(…)`。
+- `python:S7494`(×2):`set(...)` → 集合推導式。
+- `python:S3457`(×1):無佔位符的 f-string 改為普通字串。
+- `Web:S7930`(×1):`index.html` 重複的 `id="download"` → `id="download-btn"`。
+- `javascript:S7761`(×1):`getAttribute('data-copy')` → `.dataset.copy`。
+- `javascript:S7762`(×1):`parentNode.removeChild(child)` → `childNode.remove()`。
+- `javascript:S2486`(×1):空 catch 加註解說明。
+- `css:S9440`(×1):新增 `prefers-reduced-motion` 媒體查詢。
+- `css:S4666`(×1):合併重複的 `.copyrow code` 選擇器。
+- `shell:S1066`(×1):`generate_apps_json.sh` 合併巢狀 if。
+- `shell:S7684`(×2):`il2cpp_pty_wrapper.sh` 環境變數加註解(.NET 執行階段官方名稱,不可改名)。
+- `shell:S1192`(×1):`build_unity_ipa.sh` 分隔線字面值抽取為 `SEP` 變數。
+- `python:S3776`(×1, merge_tiles):`main()` 拆出 `_parse_tile_specs()` / `_load_manifests()` 降低認知複雜度。
+
+**D. 停用 GitHub Pages 部署**
+
+- 儲存庫已由公開改為私有,GitHub Pages 需付費方案(GitHub Pro/Team/Enterprise)。
+- `deploy:docs` job 設為 `if: false`(保留定義以便日後重新啟用)。
+- 入口網站(`codebase/site/`)與 `apps.json` 饋流不再部署。IPA 直接由 GitHub Releases 下載。
+
+### 已知問題
+
+- `python:S3776` 認知複雜度(6 項)仍存在於 `convert_osgb_to_chunks.py` / `decimate_glb.py` / `validate_chunks.py` 的大型函式,需深度重構,暫緩處理以避免破壞運作中的轉換管線。
+
 ## [v2.6.0] - 2026-11-26
 
 ### 變更(改善模型品質 + 雙隱形搖桿 + 保留全部分塊 + 改名)
