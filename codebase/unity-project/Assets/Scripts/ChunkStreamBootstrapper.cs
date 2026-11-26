@@ -156,23 +156,44 @@ namespace HKGrid.Streaming
                 _streamer.OnChunkUnloaded += OnChunkUnloaded;
 
                 // ── v2.2.3: 從 manifest 自動推導起始位置(不再硬編)──
-                // 單圖幅(15B-only)manifest 原點 = 15B centroid;多圖幅(merged)原點 = 15A centroid。
-                // 硬編 startPosition=(947,0,-124) 僅對多圖幅正確;單圖幅時攝影機落在圖幅外 → 無分塊 → 墜落。
-                Vector3 startLocal;
-                if (manifest.chunkCount <= 25)
+                // v2.5.0: 支援 spawnTileCode——spawn 於指定圖幅中心(如 6-SE-17C)。
+                //   - spawnTileCode 非空:該圖幅所有分塊 centroid 的平均
+                //   - spawnTileCode 為空 + 單圖幅:manifest 中心(所有 centroid 平均)
+                //   - spawnTileCode 為空 + 多圖幅:manifest 全域中心(所有 centroid 平均)
+                Vector3 startLocal = Vector3.zero;
+                int spawnChunkCount = 0;
+
+                if (!string.IsNullOrEmpty(config.spawnTileCode))
                 {
-                    // 單圖幅:所有分塊 centroid 的平均 = manifest 中心
-                    startLocal = Vector3.zero;
+                    // v2.5.0: spawn 於指定圖幅中心
+                    foreach (var c in manifest.chunks)
+                    {
+                        if (c.tile == config.spawnTileCode)
+                        {
+                            startLocal += c.CentroidVector;
+                            spawnChunkCount++;
+                        }
+                    }
+                    if (spawnChunkCount > 0)
+                    {
+                        startLocal /= spawnChunkCount;
+                        Debug.Log($"[Bootstrapper] spawnTileCode 模式:起始位置 = {config.spawnTileCode} 中心 " +
+                                  $"({spawnChunkCount} 分塊平均) {startLocal}");
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[Bootstrapper] spawnTileCode='{config.spawnTileCode}' " +
+                                         $"在 manifest 中找不到相符分塊,回退至全域中心");
+                    }
+                }
+
+                if (spawnChunkCount == 0)
+                {
+                    // 回退:manifest 全域中心(所有分塊 centroid 平均)
                     foreach (var c in manifest.chunks)
                         startLocal += c.CentroidVector;
                     startLocal /= manifest.chunks.Count;
-                    Debug.Log($"[Bootstrapper] 單圖幅模式:起始位置 = manifest 中心 {startLocal}");
-                }
-                else
-                {
-                    // 多圖幅:15B 中心(九龍城區 WGS84 [22.3319, 114.1871] → manifest-local)
-                    startLocal = new Vector3(947f, 0f, 124f);
-                    Debug.Log($"[Bootstrapper] 多圖幅模式:起始位置 = 15B 中心 {startLocal}");
+                    Debug.Log($"[Bootstrapper] 全域中心模式:起始位置 = manifest 中心 {startLocal}");
                 }
 
                 // 轉換至 Unity 世界座標(Z-up→Y-up)

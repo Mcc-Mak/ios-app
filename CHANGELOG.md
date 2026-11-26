@@ -9,6 +9,42 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.5.0] - 2026-11-26
+
+### 新增(6 圖幅 6-SW/6-SE l18 + 齒輪按鈕 + 新觸控方案)
+
+**A. 6 圖幅 l18-nofloat 分塊集(`6-SW-SE-merged-l18-nofloat`)**
+
+- 6-SE-16D + 6-SE-17C + 6-SE-21A + 6-SE-21B + 6-SE-22A + 6-SW-25B 全部以 l18-nofloat 轉換並合併。
+- **120 分塊,418.34 MB,5,835,872 三角面**(6 圖幅 × 20 分塊)。
+- `--max-texture-px 256`(iPhone 螢幕足夠)+ `--no-floating-removal`(l18+ 地面無洞規則)。
+- 起始位置:6-SE-17C 圖幅中心(新增 `spawnTileCode` 設定)。
+- `keepAllChunksAfterPreload=false`:預載入完成後恢復半徑串流(遠處卸載),降低 120 分塊同時駐留的 OOM 風險。
+- 最大分塊 18.82 MB(遠低於 v2.3.0 l19 的 43 MB);每分塊平均 ~3.5 MB。
+
+**B. 齒輪按鈕切換診斷覆蓋層 — `DebugOverlay.cs`**
+
+- 螢幕右上角齒輪按鈕(`⚙`),永遠顯示(即使覆蓋層隱藏)。
+- 點擊切換診斷覆蓋層顯示/隱藏(iOS 無實體鍵盤,Q 鍵無法使用)。
+- `GearButtonRect` 靜態欄位供 `TouchPlayerController` 排除該區域觸控(避免移動搖桿誤觸齒輪)。
+- 半透明深色圓鈕,不遮擋視線。
+
+**C. 新觸控方案 — `TouchPlayerController.cs`**
+
+- **單指拖曳 → 移動**(浮動搖桿:觸控起點=搖桿原點,拖曳方向=移動方向,放開隱藏)。
+- **雙指拖曳 → pan/tilt 視角**(兩指平均位移)+ **捏合縮放**(兩指距離變化)。同時進行。
+- **單指雙擊 → 跳躍**(兩次輕擊間隔 < 0.3s,位移 < 20px 視為點擊)。
+- 取代舊方案(v2.2.4–v2.2.18:左下角固定搖桿=視角、右半屏拖曳=視角、右側雙擊=跳躍、無移動)。
+- 搖桿 UI 改為浮動(觸控時出現於觸控點,放開隱藏),`showJoystickUI` 預設 `true`。
+- 移除 `joystickMarginX/Y`、`_lookFingerId`、`PositionJoystickAtBottomLeft`、`HandlePinch`、`UpdateLook`(舊方案欄位/方法)。
+- 桌面控制不變:WASD + 滑鼠右鍵 + 滾輪 + SPACE。
+
+### 已知問題
+
+- 6 圖幅 l18 分塊集 418 MB,IPA 預估 ~350-400 MB(大於 v2.4.0 的 190 MB,但小於 v2.3.0 的 405 MB)。
+- `keepAllChunksAfterPreload=false`:預載入完成後恢復半徑串流,遠處分塊卸載(可能有遠處彈出 pop-in);若 OOM 仍發生可進一步降低 `--max-texture-px`。
+- 預載入 120 分塊仍可能在載入頁階段 OOM(雖然每塊僅 ~3.5 MB);若發生需降低 `--max-texture-px` 或減少圖幅數。
+
 ## [v2.4.0] - 2026-11-25
 
 ### 新增(4 圖幅 inter-tile 移動 + 載入頁)

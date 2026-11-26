@@ -71,6 +71,10 @@ namespace HKGrid.Streaming
                  "150m 分塊約 19m/格。越大越精細但頂點越多")]
         public int groundFillSampleResolution = 8;
 
+        [Tooltip("v2.5.0: 多圖幅時的起始圖幅代號(如 \"6-SE-17C\")。"+
+                 "spawn 點 = 該圖幅所有分塊 centroid 的平均。空字串 = manifest 全域中心。")]
+        public string spawnTileCode = "";
+
         [Header("v2.4.0: 預載入(載入頁)")]
         [Tooltip("啟用後:場景啟動時顯示載入頁,載入所有分塊完成後才顯示場景。" +
                  "修正玩家在分塊載入前墜落穿模問題(多圖幅分塊集必需)。")]

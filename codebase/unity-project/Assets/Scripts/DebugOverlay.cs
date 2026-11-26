@@ -30,9 +30,13 @@ namespace HKGrid.Debugging
         [Tooltip("是否顯示覆蓋層(Editor 中可關閉)")]
         public bool show = true;
 
+        // v2.5.0: 齒輪按鈕螢幕矩形(供 TouchPlayerController 排除該區域觸控)
+        public static Rect GearButtonRect = Rect.zero;
+
         private readonly List<string> _lines = new List<string>();
         private GUIStyle _style;
         private GUIStyle _bgStyle;
+        private GUIStyle _gearStyle;
         private bool _styleInit;
         private int _loadedChunks;
         private int _loadingChunks;
@@ -116,6 +120,16 @@ namespace HKGrid.Debugging
             _bgStyle = new GUIStyle();
             _bgStyle.normal.background = MakeTex(2, 2, new Color(0f, 0f, 0f, 0.65f));
 
+            // v2.5.0: 齒輪按鈕樣式(半透明深色圓鈕)
+            _gearStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = Mathf.Max(20, Mathf.RoundToInt(Screen.height * 0.03f)),
+                alignment = TextAnchor.MiddleCenter,
+            };
+            _gearStyle.normal.background = MakeTex(2, 2, new Color(0f, 0f, 0f, 0.5f));
+            _gearStyle.normal.textColor = new Color(0.85f, 0.88f, 0.92f, 0.95f);
+            _gearStyle.hover = _gearStyle.normal;
+
             _styleInit = true;
         }
 
@@ -131,8 +145,20 @@ namespace HKGrid.Debugging
 
         private void OnGUI()
         {
-            if (!show) return;
             InitStyles();
+
+            // v2.5.0: 齒輪按鈕 — 永遠顯示(即使覆蓋層隱藏),點擊切換顯示/隱藏
+            float gearSize = Mathf.Max(44f, Screen.height * 0.06f);
+            float gearMargin = Screen.height * 0.02f;
+            var gearRect = new Rect(Screen.width - gearSize - gearMargin, gearMargin, gearSize, gearSize);
+            GearButtonRect = gearRect;
+            if (GUI.Button(gearRect, "\u2699", _gearStyle))
+            {
+                show = !show;
+                Debug.Log("[DebugOverlay] 覆蓋層:" + (show ? "顯示" : "隱藏"));
+            }
+
+            if (!show) return;
 
             // 螢幕左上角,佔寬度的 60%、高度的 55%
             float w = Screen.width * 0.6f;
