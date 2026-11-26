@@ -4,7 +4,7 @@
   "description": "香港 3D 攝影測量飛覽 App —— 以 Unity + glTFast 在 iPhone 上呈現真實香港 3D 城市模型(CSDI 3D 視像地圖攝影測量資料),執行時分塊串流載入,無需付費開發者帳號。透過 AltStore、SideStore 或 Sideloadly 使用免費 Apple ID 側載。資料來源:© 香港特別行政區地政總署。",
   "website": "https://github.com/Mcc-Mak/ios-app",
   "iconURL": "",
-  "appName": "HKGridVoxel",
+  "appName": "香港 FPS 小遊戲",
   "bundleIdentifier": "com.mccmak.hkgridvoxel",
   "developerName": "Mcc-Mak"
 }

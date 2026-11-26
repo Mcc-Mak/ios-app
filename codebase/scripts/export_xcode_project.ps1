@@ -43,7 +43,7 @@ $env:IOS_BUNDLE_ID = "com.mccmak.hkgridvoxel"
 $env:IOS_VERSION = $Version
 $env:IOS_BUILD_NUMBER = "1"
 $env:IOS_MIN_VERSION = "12.0"
-$env:IOS_PRODUCT_NAME = "HKGridVoxel"
+$env:IOS_PRODUCT_NAME = "香港 FPS 小遊戲"
 $env:IOS_OUTPUT_DIR = $XcodeExportDir
 
 # v2.2.15: IPA 分塊來源 — BuildIOS.cs 會於匯出前複製至 StreamingAssets/Chunks,

@@ -367,11 +367,10 @@ MonoBehaviour:
     m_Bits: 4294967295
   joystickRadius: 120
   joystickDeadzone: 0.1
-  joystickMarginX: 160
-  joystickMarginY: 160
   joystickLookSpeed: 90
   showJoystickUI: 0
   mobileJumpDoubleTapTime: 0.3
+  doubleTapMaxMove: 20
 --- !u!143 &2101336115
 CharacterController:
   m_ObjectHideFlags: 0

@@ -28,7 +28,7 @@ public static class BuildIOS
     // 從環境變數讀取設定(由 build_unity_ipa.sh 注入),提供回退預設值
     private const string DefaultBundleId    = "com.mccmak.hkgridvoxel";
     private const string DefaultVersion     = "1.0";
-    private const string DefaultProductName = "HKGridVoxel";
+    private const string DefaultProductName = "香港 FPS 小遊戲";
     private const string DefaultOutputDir   = "build/ios-xcode";
 
     /// <summary>

@@ -32,7 +32,7 @@ flowchart LR
   glb --> B["Stage B:Unity 執行期<br/>codebase/unity-project/Assets/Scripts/<br/>glTFast 串流載入"]
   B --> scene["Unity 場景<br/>ChunkStreamBootstrapper<br/>TouchPlayerController"]
   scene --> C["Stage C:iOS 建置<br/>Tuanjie 匯出 Xcode →<br/>CI macOS xcodebuild 未簽署封存"]
-  C --> ipa["未簽署 IPA<br/>HKGridVoxel-X.X.X.ipa"]
+  C --> ipa["未簽署 IPA<br/>香港FPS小遊戲-X.X.X.ipa"]
   ipa --> user["iPhone<br/>AltStore / SideStore / Sideloadly"]
 ```
 

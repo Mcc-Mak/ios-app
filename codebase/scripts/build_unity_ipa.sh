@@ -32,7 +32,7 @@
 #   CHUNKS_RELEASE_TAG  — 分塊資料 release 標籤(預設:data-11-NW-15B-l16-v1)
 #   IOS_BUNDLE_ID       — Bundle ID(預設:com.mccmak.hkgridvoxel)
 #   IOS_VERSION         — 版本(預設:1.0)
-#   IOS_PRODUCT_NAME    — 產品名稱(預設:HKGridVoxel)
+#   IOS_PRODUCT_NAME    — 產品名稱(預設:香港 FPS 小遊戲;檔名自動移除空白)
 #   UNITY_EXPORT_ONLY   — 設為 1 時只匯出 Xcode 專案(跳過 xcodebuild,Windows 用)
 #   XCODEBUILD_ONLY     — 設為 1 時只跑 xcodebuild + 打包(CI macOS 用)
 #   XCODE_PROJECT_DIR   — [XCODEBUILD_ONLY=1 必填] 預匯出 Xcode 專案目錄
@@ -47,7 +47,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROJECT_PATH="${PROJECT_PATH:-$REPO_ROOT/codebase/unity-project}"
 IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.mccmak.hkgridvoxel}"
 IOS_VERSION="${IOS_VERSION:-1.0}"
-IOS_PRODUCT_NAME="${IOS_PRODUCT_NAME:-HKGridVoxel}"
+IOS_PRODUCT_NAME="${IOS_PRODUCT_NAME:-香港 FPS 小遊戲}"
 IOS_MIN_VERSION="${IOS_MIN_VERSION:-12.0}"
 IOS_BUILD_NUMBER="${IOS_BUILD_NUMBER:-1}"
 ARCHIVE_DIR="${ARCHIVE_DIR:-$REPO_ROOT/build}"
@@ -249,14 +249,16 @@ if [[ -z "$APP_NAME" ]]; then
   echo "::error::在 $APP_DIR 中找不到 .app" >&2
   exit 1
 fi
-APP_BASENAME=$(basename "$APP_NAME")  # 如 HKGridVoxel.app
+APP_BASENAME=$(basename "$APP_NAME")  # 如 香港 FPS 小遊戲.app(檔名含空白,IPA 檔名已移除空白)
 
 # 從 Info.plist 讀取版本(避免硬編碼)
 APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_NAME/Info.plist" 2>/dev/null || echo "$IOS_VERSION")
 APP_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_NAME/Info.plist" 2>/dev/null || echo "$IOS_BUNDLE_ID")
 
-IPA_NAME="${IOS_PRODUCT_NAME}-${APP_VERSION}.ipa"
-DSYM_NAME="${IOS_PRODUCT_NAME}-${APP_VERSION}.dSYM.zip"
+# v2.6.0: IPA/dSYM 檔名移除空白(避免下載 URL 編碼問題);顯示名稱(IOS_PRODUCT_NAME)保留空白
+IPA_NAME_FILE="${IOS_PRODUCT_NAME// /}"
+IPA_NAME="${IPA_NAME_FILE}-${APP_VERSION}.ipa"
+DSYM_NAME="${IPA_NAME_FILE}-${APP_VERSION}.dSYM.zip"
 IPA_PATH="$IPA_DIR/$IPA_NAME"
 DSYM_PATH="$IPA_DIR/$DSYM_NAME"
 

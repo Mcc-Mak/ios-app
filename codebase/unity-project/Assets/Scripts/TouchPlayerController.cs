@@ -1,13 +1,13 @@
-// TouchPlayerController.cs — 第一人稱玩家控制器:v2.5.0 新觸控方案 + 地面跟隨射線。
+// TouchPlayerController.cs — 第一人稱玩家控制器:v2.6.0 雙隱形搖桿 + 地面跟隨射線。
 //
 // 取代舊版 FlyCameraController(僅 WASD + 滑鼠,在 iPhone 無輸入 → 藍屏;已刪除)。
 //
 // 控制方式:
 //   桌面(Editor/Standalone):WASD 移動 + 滑鼠右鍵拖曳視角 + 滾輪縮放(Shift 衝刺)+ SPACE 跳躍。
-//   行動(觸控 v2.5.0):
-//     - 單指拖曳 → 移動(浮動搖桿:觸控起點=搖桿原點,拖曳方向=移動方向)
-//     - 雙指拖曳 → pan/tilt 視角(兩指平均位移)+ 捏合縮放(兩指距離變化)
-//     - 單指雙擊 → 跳躍(兩次輕擊間隔 < mobileJumpDoubleTapTime)
+//   行動(觸控 v2.6.0):
+//     - 左半屏隱形搖桿 → 移動(觸控起點=搖桿原點,拖曳方向=移動方向)
+//     - 右半屏隱形搖桿 → pan/tilt 視角(類比:推越遠轉越快)
+//     - 左半屏雙擊 → 跳躍(兩次輕擊間隔 < mobileJumpDoubleTapTime)
 //
 // 地面跟隨:每幀從攝影機上方向下射線,保持攝影機在地面 + eyeHeight 高度。
 // 需要分塊 MeshCollider(ChunkStreamer 載入時加入,見 addChunkColliders 設定)。
@@ -76,20 +76,20 @@ namespace HKGrid.Streaming
         [Tooltip("地面圖層遮罩(預設全部;分塊 MeshCollider 在預設圖層)")]
         public LayerMask groundMask = ~0;
 
-        [Header("觸控搖桿(v2.5.0:浮動搖桿)")]
-        [Tooltip("搖桿半徑(像素)。v2.5.0:浮動搖桿——觸控起點=搖桿原點")]
+        [Header("觸控搖桿(v2.6.0:雙隱形搖桿)")]
+        [Tooltip("搖桿半徑(像素)。觸控起點=搖桿原點(隱形,不顯示)")]
         public float joystickRadius = 120f;
         [Tooltip("搖桿死區(低於此值視為無輸入)")]
         public float joystickDeadzone = 0.1f;
-        [Tooltip("v2.2.4: 搖桿視角靈敏度(度/秒)。v2.5.0: 已停用(搖桿改回移動)")]
-        public float joystickLookSpeed = 90f;
-        [Tooltip("v2.5.0: 是否顯示浮動搖桿視覺(底盤+拇指)。false=隱藏,輸入仍正常")]
-        public bool showJoystickUI = true;
+        [Tooltip("v2.6.0: 右側視角搖桿靈敏度(度/秒,類比:推越遠轉越快)")]
+        public float lookJoystickSpeed = 120f;
+        [Tooltip("v2.6.0: 是否顯示搖桿視覺(底盤+拇指)。false=隱形(預設),輸入仍正常")]
+        public bool showJoystickUI = false;
 
-        [Header("跳躍(行動 v2.5.0)")]
-        [Tooltip("v2.5.0: 行動裝置跳躍:單指雙擊間隔(秒)。0=停用行動跳躍")]
+        [Header("跳躍(行動 v2.6.0)")]
+        [Tooltip("v2.6.0: 行動裝置跳躍:左側雙擊間隔(秒)。0=停用行動跳躍")]
         public float mobileJumpDoubleTapTime = 0.3f;
-        [Tooltip("v2.5.0: 雙擊判定最大位移(像素)。移動少於此值視為點擊")]
+        [Tooltip("v2.6.0: 雙擊判定最大位移(像素)。移動少於此值視為點擊")]
         public float doubleTapMaxMove = 20f;
 
         // ── 內部狀態 ──
@@ -103,17 +103,17 @@ namespace HKGrid.Streaming
         // 地面跟隨射線命中緩衝(靜態,避免每幀 GC)
         private static readonly RaycastHit[] _rayHits = new RaycastHit[8];
 
-        // 觸控搖桿(v2.5.0:浮動搖桿)
+        // 觸控搖桿(v2.6.0:雙隱形搖桿——左=移動,右=視角)
         private int _moveFingerId = -1;
         private Vector2 _joystickCenter;
         private Vector2 _joystickVector = Vector2.zero;
 
-        // 觸控視角(v2.5.0:雙指拖曳 pan/tilt + 捏合縮放)
-        private Vector2 _lastTwoFingerAvg;
-        private float _lastTwoFingerDist;
-        private bool _twoFingerActive = false;
+        // 觸控視角(v2.6.0:右半屏隱形搖桿,類比)
+        private int _lookFingerId = -1;
+        private Vector2 _lookCenter;
+        private Vector2 _lookVector = Vector2.zero;
 
-        // 搖桿 UI(v2.5.0:浮動——出現於觸控起點)
+        // 搖桿 UI(v2.6.0:隱形——showJoystickUI=false 時不顯示)
         private Image _joystickBaseImg;
         private Image _joystickThumbImg;
         private Sprite _circleSprite;
@@ -312,11 +312,20 @@ namespace HKGrid.Streaming
         private void Update()
         {
             if (_isMobile)
+            {
                 HandleTouchInput();
+                // v2.6.0: 右側隱形搖桿 = 類比視角(推越遠轉越快),每幀套用
+                if (_lookVector.sqrMagnitude > joystickDeadzone * joystickDeadzone)
+                {
+                    _yaw += _lookVector.x * lookJoystickSpeed * Time.deltaTime;
+                    _pitch += -_lookVector.y * lookJoystickSpeed * Time.deltaTime;
+                    _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
+                }
+            }
             else
                 HandleDesktopInput();
 
-            // v2.5.0: 搖桿 = 移動(非視角)。移動在 ApplyMovement 中套用。
+            // v2.6.0: 左側搖桿 = 移動。移動在 ApplyMovement 中套用。
 
             // v2.2.5: 按 L 鍵印出攝影機座標(Unity Editor 除錯用)
             if (Input.GetKeyDown(KeyCode.L))
@@ -326,12 +335,12 @@ namespace HKGrid.Streaming
                           $"yaw={_yaw:F1}, pitch={_pitch:F1} | FOV={_cam.fieldOfView:F1}");
             }
 
-            // v2.2.13: 跳躍輸入(桌面 SPACE;v2.5.0: 行動單指雙擊)
+            // v2.2.13: 跳躍輸入(桌面 SPACE;v2.6.0: 行動左側雙擊)
             // 僅地面狀態 + 冷卻結束可跳;單跳(無二段跳)
             bool jumpPressed = false;
             if (!_isMobile && Input.GetKeyDown(KeyCode.Space))
                 jumpPressed = true;
-            // v2.5.0: 行動跳躍由 HandleTouchInput 雙擊偵測設定 _mobileJumpQueued
+            // v2.6.0: 行動跳躍由 HandleTouchInput 左側雙擊偵測設定 _mobileJumpQueued
             if (_isMobile && _mobileJumpQueued)
             {
                 jumpPressed = true;
@@ -378,44 +387,37 @@ namespace HKGrid.Streaming
 
         private void HandleTouchInput()
         {
-            // v2.5.0: 雙指 → pan/tilt 視角 + 捏合縮放(兩指平均位移=視角,距離變化=縮放)
-            if (Input.touchCount >= 2)
-            {
-                HandleTwoFinger();
-                // 雙指期間,單指搖桿(移動)若仍活躍則持續更新
-                if (_moveFingerId != -1)
-                {
-                    Touch moveTouch = GetTouchByFingerId(_moveFingerId);
-                    if (moveTouch.phase == TouchPhase.Moved || moveTouch.phase == TouchPhase.Stationary)
-                        UpdateJoystick(moveTouch.position);
-                }
-                return;
-            }
+            // v2.6.0: 雙隱形搖桿——左半屏=移動,右半屏=視角(pan/tilt)
+            //   左半屏雙擊=跳躍。齒輪按鈕(右上)區域排除。
+            //   搖桿搖桿隱形:觸控起點=搖桿原點,拖曳方向=輸入方向(不顯示視覺)
+            float halfWidth = Screen.width * 0.5f;
 
-            // v2.5.0: 雙指結束——重設雙指狀態(下次雙指重新建立基準)
-            if (_twoFingerActive)
-                _twoFingerActive = false;
-
-            // 單指:浮動搖桿(移動)+ 雙擊(跳躍)
-            // 排除齒輪按鈕區域(DebugOverlay.GearButtonRect)
             foreach (Touch t in Input.touches)
             {
                 // 跳過齒輪按鈕區域的觸控(讓 OnGUI 按鈕接收)
                 if (IsTouchOnGearButton(t.position)) continue;
 
+                bool isLeftSide = t.position.x < halfWidth;
+
                 switch (t.phase)
                 {
                     case TouchPhase.Began:
-                        if (_moveFingerId == -1)
+                        if (isLeftSide && _moveFingerId == -1)
                         {
+                            // 左側:移動搖桿(隱形,觸控起點=原點)
                             _moveFingerId = t.fingerId;
-                            // v2.5.0: 浮動搖桿——觸控起點=搖桿原點
                             _joystickCenter = t.position;
                             ShowJoystick(_joystickCenter);
                             UpdateJoystick(t.position);
-                            // 記錄此次觸控起點(雙擊判定用)
                             _touchStartPos = t.position;
                             _touchStartTime = Time.time;
+                        }
+                        else if (!isLeftSide && _lookFingerId == -1)
+                        {
+                            // 右側:視角搖桿(隱形,觸控起點=原點)
+                            _lookFingerId = t.fingerId;
+                            _lookCenter = t.position;
+                            _lookVector = Vector2.zero;
                         }
                         break;
 
@@ -423,24 +425,25 @@ namespace HKGrid.Streaming
                     case TouchPhase.Stationary:
                         if (t.fingerId == _moveFingerId)
                             UpdateJoystick(t.position);
+                        else if (t.fingerId == _lookFingerId)
+                            UpdateLookJoystick(t.position);
                         break;
 
                     case TouchPhase.Ended:
                     case TouchPhase.Canceled:
                         if (t.fingerId == _moveFingerId)
                         {
-                            // v2.5.0: 雙擊判定——放開時,若位移小且間隔短=點擊
+                            // v2.6.0: 左側雙擊=跳躍(放開時,若位移小且間隔短=點擊)
                             float moveDist = Vector2.Distance(t.position, _touchStartPos);
                             float elapsed = Time.time - _touchStartTime;
                             if (moveDist <= doubleTapMaxMove && elapsed <= mobileJumpDoubleTapTime * 2f)
                             {
-                                // 此次為有效點擊——檢查雙擊
                                 if (mobileJumpDoubleTapTime > 0f &&
                                     Time.time - _lastTapTime <= mobileJumpDoubleTapTime)
                                 {
                                     _mobileJumpQueued = true;
                                     _lastTapTime = -Mathf.Infinity;  // 防三擊
-                                    Debug.Log("[TouchPlayerController] 行動跳躍:單指雙擊偵測");
+                                    Debug.Log("[TouchPlayerController] 行動跳躍:左側雙擊偵測");
                                 }
                                 else
                                 {
@@ -452,45 +455,28 @@ namespace HKGrid.Streaming
                             _joystickVector = Vector2.zero;
                             HideJoystick();
                         }
+                        else if (t.fingerId == _lookFingerId)
+                        {
+                            _lookFingerId = -1;
+                            _lookVector = Vector2.zero;
+                        }
                         break;
                 }
             }
         }
 
-        // v2.5.0: 雙指處理——平均位移=pan/tilt,距離變化=捏合縮放
-        private void HandleTwoFinger()
+        // v2.6.0: 右側視角搖桿——類比(推越遠轉越快),向量存入 _lookVector
+        private void UpdateLookJoystick(Vector2 touchPos)
         {
-            Touch t0 = Input.GetTouch(0);
-            Touch t1 = Input.GetTouch(1);
+            Vector2 delta = touchPos - _lookCenter;
+            float dist = delta.magnitude;
+            if (dist > joystickRadius)
+                delta = delta.normalized * joystickRadius;
 
-            Vector2 currAvg = (t0.position + t1.position) * 0.5f;
-            float currDist = Vector2.Distance(t0.position, t1.position);
-
-            if (!_twoFingerActive)
-            {
-                // 首幀:記錄基準,不套用位移
-                _lastTwoFingerAvg = currAvg;
-                _lastTwoFingerDist = currDist;
-                _twoFingerActive = true;
-                return;
-            }
-
-            // pan/tilt:兩指平均位移
-            Vector2 avgDelta = currAvg - _lastTwoFingerAvg;
-            _yaw += avgDelta.x * lookSensitivityTouch;
-            _pitch += -avgDelta.y * lookSensitivityTouch;
-            _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
-
-            // 捏合縮放:距離變化
-            if (_lastTwoFingerDist > 1f)
-            {
-                float pinchDelta = _lastTwoFingerDist - currDist;
-                _cam.fieldOfView = Mathf.Clamp(
-                    _cam.fieldOfView + pinchDelta * zoomSpeedTouch, minFov, maxFov);
-            }
-
-            _lastTwoFingerAvg = currAvg;
-            _lastTwoFingerDist = currDist;
+            Vector2 normalized = delta / joystickRadius;
+            if (normalized.magnitude < joystickDeadzone)
+                normalized = Vector2.zero;
+            _lookVector = normalized;
         }
 
         // v2.5.0: 齒輪按鈕觸控排除
@@ -523,7 +509,7 @@ namespace HKGrid.Streaming
             Vector2 input;
             if (_isMobile)
             {
-                // v2.5.0: 浮動搖桿 = 移動(joystickVector 已含死區處理)
+                // v2.6.0: 左側隱形搖桿 = 移動(joystickVector 已含死區處理)
                 input = _joystickVector;
             }
             else
@@ -733,9 +719,10 @@ namespace HKGrid.Streaming
             _joystickBaseImg.gameObject.SetActive(false);
         }
 
-        // v2.5.0: 浮動搖桿——顯示於觸控起點(不再固定左下角)
+        // v2.6.0: 隱形搖桿——showJoystickUI=false 時不顯示(輸入仍正常)
         private void ShowJoystick(Vector2 screenPos)
         {
+            if (!showJoystickUI) return;  // v2.6.0: 隱形模式不顯示
             if (_joystickBaseImg == null) return;
             _joystickBaseImg.gameObject.SetActive(true);
             _joystickBaseImg.transform.position = new Vector3(screenPos.x, screenPos.y, 0f);

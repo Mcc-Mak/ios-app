@@ -30,7 +30,7 @@ MonoBehaviour:
   groundFillSampleResolution: 8
   spawnTileCode: 6-SE-17C
   preloadAllChunks: 1
-  keepAllChunksAfterPreload: 0
+  keepAllChunksAfterPreload: 1
   preloadDeferBudget: 0.5
   drawChunkGizmos: 1
   logStreamingEvents: 1

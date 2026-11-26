@@ -116,7 +116,7 @@ namespace HKGrid.Editor
             player.startYaw = 0f;             // v2.2.8: 恢復原始
             player.defaultFov = 60f;          // v2.2.8: 恢復原始
             player.moveSpeed = 8.75f;         // v2.2.6: 1.75x(使用者要求保留)
-            player.joystickLookSpeed = 90f;
+            player.lookJoystickSpeed = 120f;  // v2.6.0: 右側視角搖桿靈敏度
             EditorUtility.SetDirty(player);
 
             // 6b-2. v2.2.15: 掛上 DebugOverlay(iOS 螢幕診斷;Editor 中也可顯示)

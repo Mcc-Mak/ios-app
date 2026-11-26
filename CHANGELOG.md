@@ -9,6 +9,44 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.6.0] - 2026-11-26
+
+### 變更(改善模型品質 + 雙隱形搖桿 + 保留全部分塊 + 改名)
+
+**A. 改善模型品質(重新轉換 6 圖幅 l18-nofloat)**
+
+- v2.5.0 轉換參數過度簡化(256px 貼圖 + decimate-threshold 2000),導致建物形狀不真實。
+- v2.6.0 重新轉換:`--max-texture-px 512`(提升一倍)+ `--decimate-threshold 5000`(減少簡化)+ `--max-chunk-mb 15`(放寬分塊上限)。
+- 結果:**560.94 MB,6,180,046 三角面**(v2.5.0 為 418 MB / 5.84M 三角面,+34% 三角面)。
+- 貼圖解析度 256px → 512px,建物外觀更真實。
+
+**B. 雙隱形搖桿控制方案 — `TouchPlayerController.cs`**
+
+- **左半屏隱形搖桿 → 移動**(觸控起點=搖桿原點,拖曳方向=移動方向,隱形不顯示)。
+- **右半屏隱形搖桿 → pan/tilt 視角**(類比:推越遠轉越快,隱形不顯示)。
+- **左半屏雙擊 → 跳躍**(兩次輕擊間隔 < 0.3s)。
+- 取代 v2.5.0 方案(單指拖曳=移動 + 雙指拖曳=視角+縮放 + 單指雙擊=跳躍)。
+- `showJoystickUI` 預設 `false`(隱形);桌面控制不變(WASD + 滑鼠右鍵 + 滾輪 + SPACE)。
+
+**C. 保留全部分塊駐留(`keepAllChunksAfterPreload=true`)**
+
+- v2.5.0 設為 `false`(串流卸載遠處分塊),但使用者無法走出原始圖幅(分塊卸載後邊界消失)。
+- v2.6.0 改回 `true`:預載入完成後保留全部 120 分塊,可自由跨圖幅移動。
+- 風險:120 分塊全部駐留記憶體(~560 MB GLB),OOM 風險較高;若發生需降低 `--max-texture-px` 或減少圖幅。
+
+**D. App 改名為「香港 FPS 小遊戲」**
+
+- `ProjectSettings.asset` `productName`:`HKGridVoxel` → `香港 FPS 小遊戲`(iOS 主畫面顯示名稱)。
+- `app.config.json` `appName`:`HKGridVoxel` → `香港 FPS 小遊戲`(AltStore/SideStore 饋流顯示名稱)。
+- `BuildIOS.cs` `DefaultProductName` 同步更新。
+- `export_xcode_project.ps1` + `build_unity_ipa.sh` `IOS_PRODUCT_NAME` 預設值同步更新。
+- IPA/dSYM 檔名移除空白(避免下載 URL 編碼問題):`香港FPS小遊戲-2.6.0.ipa`。
+- Bundle ID 不變:`com.mccmak.hkgridvoxel`(避免破壞側載更新)。
+
+### 已知問題
+
+- 560 MB 分塊集 + `keepAllChunksAfterPreload=true` 全部駐留,iPhone OOM 風險高於 v2.5.0(串流卸載)。若預載入階段 OOM 需降低 `--max-texture-px` 或減少圖幅數。
+
 ## [v2.5.0] - 2026-11-26
 
 ### 新增(6 圖幅 6-SW/6-SE l18 + 齒輪按鈕 + 新觸控方案)
