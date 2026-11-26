@@ -28,7 +28,11 @@ public static class BuildIOS
     // 從環境變數讀取設定(由 build_unity_ipa.sh 注入),提供回退預設值
     private const string DefaultBundleId    = "com.mccmak.hkgridvoxel";
     private const string DefaultVersion     = "1.0";
-    private const string DefaultProductName = "香港 FPS 小遊戲";
+    // v2.6.2: PRODUCT_NAME 改為 ASCII「HK_FPS」,避免 xcodebuild 在 macOS 上將 CJK
+    // 自產品名稱中剔除(產生「FPS.app」而非「香港FPS小遊戲.app」)。
+    // 家畫面顯示名稱(香港 FPS 小遊戲)由 export_xcode_project.ps1 於匯出後
+    // 寫入 Info.plist 的 CFBundleDisplayName,與 PRODUCT_NAME 解耦。
+    private const string DefaultProductName = "HK_FPS";
     private const string DefaultOutputDir   = "build/ios-xcode";
 
     /// <summary>

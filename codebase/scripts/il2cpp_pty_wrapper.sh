@@ -20,7 +20,8 @@
 #   cp il2cpp_pty_wrapper.sh il2cpp && chmod +x il2cpp
 DIR="$(dirname "$0")"
 # COMPlus_ReadyToRun 與 DOTNET_ReadyToRun 為 .NET 執行階段官方環境變數名稱,
-# 不可改名(.NET 執行階段以此確切名稱辨識)。SonarCloud S7684 為誤判,故保留。
-export COMPlus_ReadyToRun=0
-export DOTNET_ReadyToRun=0
+# 不可改名(.NET 執行階段以此確切名稱辨識)。SonarCloud S7684 為誤判,故以
+# NOSONAR 註解抑制(https://sonarcloud.io/organizations/mcc-mak/rules?open=shell%3AS7684)。
+export COMPlus_ReadyToRun=0  # NOSONAR
+export DOTNET_ReadyToRun=0   # NOSONAR
 exec "$DIR/il2cpp.real" "$@" </dev/null

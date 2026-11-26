@@ -4,10 +4,10 @@
 //
 // 控制方式:
 //   桌面(Editor/Standalone):WASD 移動 + 滑鼠右鍵拖曳視角 + 滾輪縮放(Shift 衝刺)+ SPACE 跳躍。
-//   行動(觸控 v2.6.0):
+//   行動(觸控 v2.6.0 / v2.6.2):
 //     - 左半屏隱形搖桿 → 移動(觸控起點=搖桿原點,拖曳方向=移動方向)
 //     - 右半屏隱形搖桿 → pan/tilt 視角(類比:推越遠轉越快)
-//     - 左半屏雙擊 → 跳躍(兩次輕擊間隔 < mobileJumpDoubleTapTime)
+//     - 右半屏雙擊 → 跳躍(v2.6.2:由左側改為右側;兩次輕擊間隔 < mobileJumpDoubleTapTime)
 //
 // 地面跟隨:每幀從攝影機上方向下射線,保持攝影機在地面 + eyeHeight 高度。
 // 需要分塊 MeshCollider(ChunkStreamer 載入時加入,見 addChunkColliders 設定)。
@@ -86,8 +86,8 @@ namespace HKGrid.Streaming
         [Tooltip("v2.6.0: 是否顯示搖桿視覺(底盤+拇指)。false=隱形(預設),輸入仍正常")]
         public bool showJoystickUI = false;
 
-        [Header("跳躍(行動 v2.6.0)")]
-        [Tooltip("v2.6.0: 行動裝置跳躍:左側雙擊間隔(秒)。0=停用行動跳躍")]
+        [Header("跳躍(行動 v2.6.0 / v2.6.2)")]
+        [Tooltip("v2.6.2: 行動裝置跳躍:右側雙擊間隔(秒)。0=停用行動跳躍")]
         public float mobileJumpDoubleTapTime = 0.3f;
         [Tooltip("v2.6.0: 雙擊判定最大位移(像素)。移動少於此值視為點擊")]
         public float doubleTapMaxMove = 20f;
@@ -134,11 +134,11 @@ namespace HKGrid.Streaming
         private bool _isGrounded = false;       // 目前在地面(可跳)
         private bool _isJumping = false;        // 跳躍中(上升或下降,尚未著地)
         private float _lastJumpTime = -Mathf.Infinity;  // 上次跳躍時間(Time.time)
-        // v2.5.0: 行動跳躍——單指雙擊偵測(全域,不限右側)
+        // v2.6.2: 行動跳躍——右側單指雙擊偵測(由左側改為右側)
         private float _lastTapTime = -Mathf.Infinity;   // 上次單擊時間
         private Vector2 _lastTapPos;                     // 上次單擊位置
         private bool _mobileJumpQueued = false;          // 本幀待處理的行動跳躍請求
-        // v2.5.0: 當前觸控起點(雙擊判定用——放開時比較位移)
+        // v2.6.2: 右側視角觸控起點(雙擊判定用——放開時比較位移)
         private Vector2 _touchStartPos;
         private float _touchStartTime;
 
@@ -335,12 +335,12 @@ namespace HKGrid.Streaming
                           $"yaw={_yaw:F1}, pitch={_pitch:F1} | FOV={_cam.fieldOfView:F1}");
             }
 
-            // v2.2.13: 跳躍輸入(桌面 SPACE;v2.6.0: 行動左側雙擊)
+            // v2.2.13: 跳躍輸入(桌面 SPACE;v2.6.2: 行動右側雙擊)
             // 僅地面狀態 + 冷卻結束可跳;單跳(無二段跳)
             bool jumpPressed = false;
             if (!_isMobile && Input.GetKeyDown(KeyCode.Space))
                 jumpPressed = true;
-            // v2.6.0: 行動跳躍由 HandleTouchInput 左側雙擊偵測設定 _mobileJumpQueued
+            // v2.6.2: 行動跳躍由 HandleTouchInput 右側雙擊偵測設定 _mobileJumpQueued
             if (_isMobile && _mobileJumpQueued)
             {
                 jumpPressed = true;
@@ -388,7 +388,7 @@ namespace HKGrid.Streaming
         private void HandleTouchInput()
         {
             // v2.6.0: 雙隱形搖桿——左半屏=移動,右半屏=視角(pan/tilt)
-            //   左半屏雙擊=跳躍。齒輪按鈕(右上)區域排除。
+            //   右半屏雙擊=跳躍(v2.6.2:由左側改為右側)。齒輪按鈕(右上)區域排除。
             //   搖桿搖桿隱形:觸控起點=搖桿原點,拖曳方向=輸入方向(不顯示視覺)
             float halfWidth = Screen.width * 0.5f;
 
@@ -409,8 +409,6 @@ namespace HKGrid.Streaming
                             _joystickCenter = t.position;
                             ShowJoystick(_joystickCenter);
                             UpdateJoystick(t.position);
-                            _touchStartPos = t.position;
-                            _touchStartTime = Time.time;
                         }
                         else if (!isLeftSide && _lookFingerId == -1)
                         {
@@ -418,6 +416,9 @@ namespace HKGrid.Streaming
                             _lookFingerId = t.fingerId;
                             _lookCenter = t.position;
                             _lookVector = Vector2.zero;
+                            // v2.6.2: 記錄右側觸控起點(雙擊跳躍判定用)
+                            _touchStartPos = t.position;
+                            _touchStartTime = Time.time;
                         }
                         break;
 
@@ -433,7 +434,13 @@ namespace HKGrid.Streaming
                     case TouchPhase.Canceled:
                         if (t.fingerId == _moveFingerId)
                         {
-                            // v2.6.0: 左側雙擊=跳躍(放開時,若位移小且間隔短=點擊)
+                            _moveFingerId = -1;
+                            _joystickVector = Vector2.zero;
+                            HideJoystick();
+                        }
+                        else if (t.fingerId == _lookFingerId)
+                        {
+                            // v2.6.2: 右側雙擊=跳躍(放開時,若位移小且間隔短=點擊)
                             float moveDist = Vector2.Distance(t.position, _touchStartPos);
                             float elapsed = Time.time - _touchStartTime;
                             if (moveDist <= doubleTapMaxMove && elapsed <= mobileJumpDoubleTapTime * 2f)
@@ -443,7 +450,7 @@ namespace HKGrid.Streaming
                                 {
                                     _mobileJumpQueued = true;
                                     _lastTapTime = -Mathf.Infinity;  // 防三擊
-                                    Debug.Log("[TouchPlayerController] 行動跳躍:左側雙擊偵測");
+                                    Debug.Log("[TouchPlayerController] 行動跳躍:右側雙擊偵測");
                                 }
                                 else
                                 {
@@ -451,12 +458,6 @@ namespace HKGrid.Streaming
                                     _lastTapPos = t.position;
                                 }
                             }
-                            _moveFingerId = -1;
-                            _joystickVector = Vector2.zero;
-                            HideJoystick();
-                        }
-                        else if (t.fingerId == _lookFingerId)
-                        {
                             _lookFingerId = -1;
                             _lookVector = Vector2.zero;
                         }

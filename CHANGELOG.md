@@ -9,6 +9,40 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.6.2] - 2026-11-26
+
+### 變更(跳躍改右側 + 修正跨圖幅移動 + IPA 改名 HK_FPS + SonarCloud S2083)
+
+**A. 行動跳躍:由左側雙擊改為右側雙擊**
+
+- v2.6.0 的行動跳躍為左半屏(移動搖桿側)雙擊;v2.6.2 改為右半屏(視角搖桿側)雙擊。
+- `TouchPlayerController.HandleTouchInput`:雙擊偵測由左側 `_moveFingerId` 的 `Ended` 移至右側 `_lookFingerId` 的 `Ended`;`_touchStartPos`/`_touchStartTime` 改於右側 `Began` 記錄。
+- 左側恢復為純移動搖桿,右側同時處理視角拖曳與雙擊跳躍。
+
+**B. 修正跨圖幅移動:玩家無法走出初始圖幅**
+
+- **根因**:CSDI 攝影測量 OSGB 圖幅邊緣有垂直「裙牆」(curtain wall)——掃描區邊界的網格向下垂直延伸封閉。這些垂直面經 `addChunkColliders` 產生 `MeshCollider`,成為隱形牆壁,阻擋玩家從一個圖幅走向相鄰圖幅。
+- **網格排列已驗證正確**:manifest 的 `positionOffset` 確認為 5 圖幅 3×2 矩陣(16D/17C 上列、21A/21B/22A 下列),排列無誤;「無法走出」純為碰撞器遮擋,非排列問題。
+- **修正**:`ChunkStreamConfig.addChunkColliders` 設為 `0`(停用分塊 `MeshCollider`)。玩家改由逐塊地面填補(`GroundFill_*`)的 `MeshCollider` 提供碰撞與地面跟隨。地面填補為連續高度場,跨越所有圖幅邊界,玩家可自由行走於全部 5 個圖幅之間。
+- **取捨**:停用分塊碰撞器後,玩家可穿越建物(無建物碰撞),但可自由跨圖幅移動。如需恢復建物碰撞,需於轉換器加入裙牆移除功能(需重新轉換全部圖幅)。
+
+**C. IPA 檔名改為 `HK_FPS-X.X.X.ipa`**
+
+- v2.6.0–v2.6.1 的 `PRODUCT_NAME` 為「香港 FPS 小遊戲」,xcodebuild 在 macOS runner 上將 CJK 自產品名稱剔除,產生 `FPS.app` / `FPS.-2.6.X.ipa`(檔名錯誤且混淆)。
+- v2.6.2 將 `PRODUCT_NAME` 改為 ASCII `HK_FPS`(`ProjectSettings.asset`、`BuildIOS.cs`、`export_xcode_project.ps1`、`build_unity_ipa.sh`),xcodebuild 產生 `HK_FPS.app` → `HK_FPS-2.6.2.ipa`。
+- 家畫面顯示名稱「香港 FPS 小遊戲」由 `export_xcode_project.ps1` 於匯出後寫入 `Info.plist` 的 `CFBundleDisplayName`(與 `PRODUCT_NAME` 解耦)。
+- `build_unity_ipa.sh` 新增 `IOS_DISPLAY_NAME` 變數,manifest.json 的 `appName` 改用此變數(顯示名稱),IPA 檔名仍用 `IOS_PRODUCT_NAME`(ASCII)。
+- Bundle ID `com.mccmak.hkgridvoxel` 不變,側載更新不受影響。
+
+**D. 修復 SonarCloud S2083(BLOCKER 安全漏洞)**
+
+- `pythonsecurity:S2083`(BLOCKER):`convert_osgb_to_chunks._rewrite_mtl_to_basenames()` 的路徑穿越防護由子字串檢查(`".." in basename`)升級為嚴格白名單正規表達式(`SAFE_BASENAME_RE = ^[A-Za-z0-9._-]+$`),並改用 `os.path.basename()` 正規化路徑。
+- `shell:S7684`(×2, MAJOR):`il2cpp_pty_wrapper.sh` 的 `COMPlus_ReadyToRun` / `DOTNET_ReadyToRun`(.NET 執行階段官方環境變數,不可改名)加 `NOSONAR` 抑制。
+
+### 已知問題
+
+- `python:S3776` 認知複雜度(6 項)仍存在於 `convert_osgb_to_chunks.py` / `decimate_glb.py` / `validate_chunks.py` 的大型函式,需深度重構,暫緩處理。
+
 ## [v2.6.1] - 2026-11-26
 
 ### 修正(移除 6-SW-25B + 安全修復 + 停用 Pages)

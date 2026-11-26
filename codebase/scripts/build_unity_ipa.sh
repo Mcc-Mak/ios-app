@@ -50,7 +50,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROJECT_PATH="${PROJECT_PATH:-$REPO_ROOT/codebase/unity-project}"
 IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.mccmak.hkgridvoxel}"
 IOS_VERSION="${IOS_VERSION:-1.0}"
-IOS_PRODUCT_NAME="${IOS_PRODUCT_NAME:-香港 FPS 小遊戲}"
+IOS_PRODUCT_NAME="${IOS_PRODUCT_NAME:-HK_FPS}"
+# v2.6.2: 顯示名稱(家畫面/AltStore 饋流用)與 PRODUCT_NAME 解耦。
+# PRODUCT_NAME 為 ASCII(HK_FPS)確保 xcodebuild 產生乾淨檔名;
+# IOS_DISPLAY_NAME 為 CJK 顯示名稱,寫入 manifest.json 的 appName。
+IOS_DISPLAY_NAME="${IOS_DISPLAY_NAME:-香港 FPS 小遊戲}"
 IOS_MIN_VERSION="${IOS_MIN_VERSION:-12.0}"
 IOS_BUILD_NUMBER="${IOS_BUILD_NUMBER:-1}"
 ARCHIVE_DIR="${ARCHIVE_DIR:-$REPO_ROOT/build}"
@@ -311,7 +315,7 @@ IPA_SIZE=$(stat -f%z "$IPA_PATH" 2>/dev/null || stat -c%s "$IPA_PATH" 2>/dev/nul
 MANIFEST_PATH="$IPA_DIR/manifest.json"
 cat > "$MANIFEST_PATH" <<EOF
 {
-  "appName": "$IOS_PRODUCT_NAME",
+  "appName": "$IOS_DISPLAY_NAME",
   "bundleIdentifier": "$APP_BUNDLE_ID",
   "version": "$APP_VERSION",
   "ipaFileName": "$IPA_NAME",

@@ -22,7 +22,7 @@ MonoBehaviour:
   gltfFrameBudget: 0.15
   cacheGltfImports: 0
   applyZupToYupRotation: 1
-  addChunkColliders: 1
+  addChunkColliders: 0
   forceDoubleSided: 1
   groundFillEnabled: 1
   groundFillColor: {r: 0.35, g: 0.37, b: 0.28, a: 1}

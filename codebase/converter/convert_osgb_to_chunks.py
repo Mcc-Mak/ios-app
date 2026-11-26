@@ -56,6 +56,12 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
+# ────────────────────────── 常數 ──────────────────────────
+# 安全紋理 basename 白名單(SonarCloud S2083):僅允許英數、點、底線、連字號。
+# 用於 _rewrite_mtl_to_basenames() 驗證來自 .mtl 檔案內容的紋理路徑,
+# 杜絕路徑穿越攻擊(如 ../../etc/passwd)。
+SAFE_BASENAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
 # ────────────────────────── logging ──────────────────────────
 log = logging.getLogger("converter")
 
@@ -237,11 +243,13 @@ def _rewrite_mtl_to_basenames(obj_path: Path) -> None:
                 parts = stripped.split(None, 1)
                 if len(parts) == 2:
                     tex_ref = parts[1].strip().strip('"')
-                    # 取 basename,處理 Windows/Unix 路徑與反斜線
-                    tex_ref_norm = tex_ref.replace("\\", "/")
-                    basename = tex_ref_norm.split("/")[-1]
-                    # 防範路徑穿越(SonarCloud S2083):拒絕含 .. 或路徑分隔符的 basename
-                    if ".." in basename or "/" in basename or "\\" in basename:
+                    # 防範路徑穿越(SonarCloud S2083):
+                    # 1) os.path.basename 取最末路徑元件(正規化 Windows/Unix 分隔符)
+                    # 2) 嚴格白名單:僅允許英數、點、底線、連字號;拒絕其餘一切
+                    #    (含 ..、路徑分隔符、空格等),杜絕任何穿越向量。
+                    basename = os.path.basename(tex_ref.replace("\\", "/"))
+                    if not SAFE_BASENAME_RE.match(basename):
+                        log.debug("  拒絕不安全的紋理 basename: %r", basename)
                         continue
                     if basename != tex_ref:
                         new_lines.append(f"{parts[0]} {basename}")
@@ -251,8 +259,8 @@ def _rewrite_mtl_to_basenames(obj_path: Path) -> None:
         if changed:
             mtl_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
             log.debug("  已改寫 .mtl 紋理路徑為 basename: %s", mtl_path.name)
-    except Exception as e:
-        log.debug("  .mtl 改寫失敗(非致命): %s", e)
+    except Exception:
+        log.exception("  .mtl 改寫失敗(非致命)")
 
 
 def _lod_type(v: str) -> str:

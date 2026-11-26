@@ -43,7 +43,9 @@ $env:IOS_BUNDLE_ID = "com.mccmak.hkgridvoxel"
 $env:IOS_VERSION = $Version
 $env:IOS_BUILD_NUMBER = "1"
 $env:IOS_MIN_VERSION = "12.0"
-$env:IOS_PRODUCT_NAME = "香港 FPS 小遊戲"
+# v2.6.2: PRODUCT_NAME 用 ASCII「HK_FPS」(避免 xcodebuild 在 macOS 剔除 CJK)。
+# 家畫面顯示名稱於匯出後寫入 Info.plist 的 CFBundleDisplayName。
+$env:IOS_PRODUCT_NAME = "HK_FPS"
 $env:IOS_OUTPUT_DIR = $XcodeExportDir
 
 # v2.2.15: IPA 分塊來源 — BuildIOS.cs 會於匯出前複製至 StreamingAssets/Chunks,
@@ -204,6 +206,25 @@ Write-Output "✅ Xcode 專案匯出成功:$($Xcodeproj.FullName)"
 $exportSize = (Get-ChildItem $XcodeExportDir -Recurse -ErrorAction SilentlyContinue |
     Measure-Object -Property Length -Sum).Sum
 Write-Output "   匯出目錄大小:$([math]::Round($exportSize / 1MB, 1)) MB"
+
+# ─── v2.6.2: 寫入 CFBundleDisplayName 至 Info.plist ──────────
+# PRODUCT_NAME 為 ASCII「HK_FPS」(供 xcodebuild 產生乾淨的 .app/.ipa 檔名),
+# 但家畫面顯示名稱需為「香港 FPS 小遊戲」。Unity 產生的 Info.plist 中
+# CFBundleDisplayName 預設 = productName(= HK_FPS),於此改寫為 CJK 顯示名稱。
+$displayName = "香港 FPS 小遊戲"
+$infoPlists = Get-ChildItem $XcodeExportDir -Filter "Info.plist" -Recurse -ErrorAction SilentlyContinue
+if ($infoPlists) {
+    foreach ($iplist in $infoPlists) {
+        $content = Get-Content $iplist.FullName -Raw -Encoding UTF8
+        if ($content -match '(?s)<key>CFBundleDisplayName</key>\s*<string>[^<]*</string>') {
+            $content = $content -replace '(?s)(<key>CFBundleDisplayName</key>\s*<string>)[^<]*(</string>)', "`${1}${displayName}`${2}"
+            Set-Content $iplist.FullName -Value $content -Encoding UTF8 -NoNewline
+            Write-Output "   CFBundleDisplayName 已設為「${displayName}」:$($iplist.FullName)"
+        }
+    }
+} else {
+    Write-Warning "⚠ 找不到 Info.plist,家畫面顯示名稱將為 HK_FPS"
+}
 
 # ─── 打包為 tar.gz ──────────────────────────────────────────
 Write-Output ""
