@@ -91,7 +91,7 @@ jobs:
       DOTNET_ReadyToRun: '0'
     steps:
       - name: 取出原始碼
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 選擇 Xcode
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90  # v1(釘選 commit SHA)
@@ -265,7 +265,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: 取出原始碼
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 設定腳本為可執行
         run: chmod +x codebase/scripts/*.sh
