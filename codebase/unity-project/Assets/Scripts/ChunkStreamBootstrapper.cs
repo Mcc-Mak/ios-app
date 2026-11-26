@@ -326,6 +326,15 @@ namespace HKGrid.Streaming
             if (sizeX < 0.1f || sizeZ < 0.1f) return;
 
             // ── 2. 分格:每格取最低 Y(=地面,非屋頂)──
+            // v2.6.3: 過濾建物頂點——只取 overallMinY + GROUND_BAND 範圍內的頂點。
+            // 原因:分塊網格包含建物(攝影測量),GroundFill 逐格取 min-Y 會把屋頂
+            // 當地面(如 17C_x162_y168 高度 -93~+99m,屋頂格 Y=+99)。
+            // 玩家在該格上方 spawn 時,向下射線打不到屋頂 GroundFill(在射線起點上方)
+            // → 找不到地面 → 墜落 → 「無法站立」。
+            // 合法地形高差 ≤34m(實測),建物 >40m。GROUND_BAND=40m 保留地形、濾除建物。
+            // 建物下的格(無地形頂點)由步驟 3 鄰居插值填補 → 地面高度。
+            const float GROUND_BAND = 40f;
+            float groundCeiling = overallMinY + GROUND_BAND;
             var groundY = new float[res, res];
             var hasData = new bool[res, res];
             for (int i = 0; i < res; i++)
@@ -334,6 +343,7 @@ namespace HKGrid.Streaming
 
             foreach (var v in verts)
             {
+                if (v.y > groundCeiling) continue;  // v2.6.3: 跳過建物頂點(屋頂/高樓)
                 int gi = Mathf.Clamp(Mathf.FloorToInt((v.x - minX) / sizeX * res), 0, res - 1);
                 int gj = Mathf.Clamp(Mathf.FloorToInt((v.z - minZ) / sizeZ * res), 0, res - 1);
                 if (v.y < groundY[gi, gj])
@@ -415,19 +425,27 @@ namespace HKGrid.Streaming
             }
 
             // ── 4. 建立高度場網格(填補面 = 地面Y - belowOffset)──
+            // v2.6.3: 頂點置於完整 extent(i/(res-1)),非格中心((i+0.5)/res)。
+            // 原因:(i+0.5)/res 使 GroundFill 網格內縮 ~9m/邊(res=8)→ 相鄰分塊
+            // GroundFill 之間有 ~18m 空隙 → 玩家在邊界墜落(含 spawn 點)。
+            // 改為 i/(res-1):頂點由 0%..100%,相鄰 GroundFill 相接(或微重疊)。
             int vCount = res * res;
             var vertices = new Vector3[vCount];
             var uvs = new Vector2[vCount];
+            float denomX = res - 1;
+            float denomZ = res - 1;
+            if (denomX < 1f) denomX = 1f;
+            if (denomZ < 1f) denomZ = 1f;
             for (int j = 0; j < res; j++)
             {
                 for (int i = 0; i < res; i++)
                 {
                     int idx = j * res + i;
-                    float cx = minX + sizeX * (i + 0.5f) / res;
-                    float cz = minZ + sizeZ * (j + 0.5f) / res;
+                    float cx = minX + sizeX * i / denomX;
+                    float cz = minZ + sizeZ * j / denomZ;
                     float cy = groundY[i, j] - config.groundFillBelowOffset;
                     vertices[idx] = new Vector3(cx, cy, cz);
-                    uvs[idx] = new Vector2((float)i / res, (float)j / res);
+                    uvs[idx] = new Vector2((float)i / denomX, (float)j / denomZ);
                 }
             }
 

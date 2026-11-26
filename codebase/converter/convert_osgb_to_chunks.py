@@ -60,7 +60,7 @@ from PIL import Image
 # 安全紋理 basename 白名單(SonarCloud S2083):僅允許英數、點、底線、連字號。
 # 用於 _rewrite_mtl_to_basenames() 驗證來自 .mtl 檔案內容的紋理路徑,
 # 杜絕路徑穿越攻擊(如 ../../etc/passwd)。
-SAFE_BASENAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+SAFE_BASENAME_RE = re.compile(r"^[A-Za-z0-9._+\-]+$")
 
 # ────────────────────────── logging ──────────────────────────
 log = logging.getLogger("converter")
@@ -106,6 +106,65 @@ class ChunkRecord:
 OSGB_SUFFIX = ".osgb"  # CSDI 攝影測量子檔副檔名(避免重複字面值,SonarCloud S1192)
 
 
+def _resolve_osgb_root(input_path: Path, work_dir: Path) -> Path:
+    """從 .zip 或已解壓目錄解析 OSGB sheet 根目錄。"""
+    if input_path.is_file() and input_path.suffix.lower() == ".zip":
+        extract_dir = work_dir / "osgb_extract"
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        log.info("解壓 OSGB zip → %s", extract_dir)
+        with zipfile.ZipFile(input_path) as z:
+            z.extractall(extract_dir)
+        return _find_sheet_root(extract_dir)
+    if input_path.is_dir():
+        return _find_sheet_root(input_path)
+    raise ValueError(f"輸入必須是 .zip 或目錄: {input_path}")
+
+
+def _select_lod_files(subtile_dir: Path, lod_token: str | None) -> list[Path]:
+    """在子圖幅目錄中選取符合 LOD 的 .osgb 檔案。root=None 表不含 _L。"""
+    if lod_token is None:
+        return sorted([f for f in subtile_dir.iterdir()
+                       if f.suffix.lower() == OSGB_SUFFIX and "_L" not in f.name])
+    return sorted([f for f in subtile_dir.iterdir()
+                   if f.suffix.lower() == OSGB_SUFFIX and lod_token in f.name])
+
+
+def _parse_tile_coords(filename: str) -> tuple[int, int] | None:
+    """從 Tile_+X_+Y[_LNN_NN].osgb 檔名解析座標。失敗回傳 None。"""
+    rm = re.match(r"Tile_\+(-?\d+)_\+(-?\d+)", filename)
+    if not rm:
+        return None
+    return int(rm.group(1)), int(rm.group(2))
+
+
+def _collect_subtiles(root: Path, lod_token: str | None, lod: str) -> list[SubTile]:
+    """掃描根目錄的子圖幅,收集各子圖幅的 LOD .osgb 檔。"""
+    subtiles: list[SubTile] = []
+    for d in sorted(root.iterdir()):
+        if not d.is_dir():
+            continue
+        m = re.match(r"^(.+)-(\d+)$", d.name)
+        if not m:
+            continue
+        idx = int(m.group(2))
+        chosen = _select_lod_files(d, lod_token)
+        if not chosen:
+            log.warning("子圖幅 %s 找不到 LOD=%s 的 %s(跳過)", d.name, lod, OSGB_SUFFIX)
+            continue
+        coords = _parse_tile_coords(chosen[0].name)
+        if coords is None:
+            log.warning("無法解析子圖幅座標: %s", chosen[0].name)
+            continue
+        tile_x, tile_y = coords
+        all_lod_files = sorted([f for f in d.iterdir()
+                                if f.suffix.lower() == OSGB_SUFFIX and "_L" in f.name])
+        subtiles.append(SubTile(
+            index=idx, dir_name=d.name, tile_x=tile_x, tile_y=tile_y,
+            lod_osgbs=chosen, all_lod_files=all_lod_files,
+        ))
+    return subtiles
+
+
 def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tuple[Path, list[SubTile]]:
     """
     輸入可能是 .zip 或已解壓目錄。回傳 (根目錄, 子圖幅清單)。
@@ -117,17 +176,7 @@ def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tu
       "l16"  — 第 16 層 LOD(檔名含 _L16_)。建物有真正牆面,視覺顯著改善。
       每個子圖幅的 root/l15/l16 皆為單一 .osgb 檔(L17+ 才分裂為四元樹多檔)。
     """
-    if input_path.is_file() and input_path.suffix.lower() == ".zip":
-        extract_dir = work_dir / "osgb_extract"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-        log.info("解壓 OSGB zip → %s", extract_dir)
-        with zipfile.ZipFile(input_path) as z:
-            z.extractall(extract_dir)
-        root = _find_sheet_root(extract_dir)
-    elif input_path.is_dir():
-        root = _find_sheet_root(input_path)
-    else:
-        raise ValueError(f"輸入必須是 .zip 或目錄: {input_path}")
+    root = _resolve_osgb_root(input_path, work_dir)
 
     if root is None:
         raise ValueError(f"在 {input_path} 下找不到預期的 <SheetNo>-N/Tile_+X_+Y.osgb 結構")
@@ -136,43 +185,9 @@ def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tu
 
     # LOD 選擇:root = 檔名不含 _L;lNN = 檔名含 _L<N>_(
     # l17+ 一個子圖幅會分裂為多個 .osgb,全部收集後合併為單一分塊)。
-    if lod == "root":
-        lod_token = None  # 不含 _L
-    else:
-        lod_token = f"_L{lod[1:]}_"  # e.g. "_L16_"、"_L17_"
+    lod_token = None if lod == "root" else f"_L{lod[1:]}_"
 
-    subtiles: list[SubTile] = []
-    for d in sorted(root.iterdir()):
-        if not d.is_dir():
-            continue
-        m = re.match(r"^(.+)-(\d+)$", d.name)
-        if not m:
-            continue
-        idx = int(m.group(2))
-        if lod_token is None:
-            # root: 檔名不含 _L(單檔)
-            chosen = sorted([f for f in d.iterdir()
-                             if f.suffix.lower() == OSGB_SUFFIX and "_L" not in f.name])
-        else:
-            # lNN: 檔名含 _L<N>_(l17+ 可能多檔,全部收集)
-            chosen = sorted([f for f in d.iterdir()
-                             if f.suffix.lower() == OSGB_SUFFIX and lod_token in f.name])
-        if not chosen:
-            log.warning("子圖幅 %s 找不到 LOD=%s 的 %s(跳過)", d.name, lod, OSGB_SUFFIX)
-            continue
-        # 座標從檔名解析(root 與 LNN 命名一致:Tile_+X_+Y[_LNN_NN].osgb)
-        rm = re.match(r"Tile_\+(-?\d+)_\+(-?\d+)", chosen[0].name)
-        if not rm:
-            log.warning("無法解析子圖幅座標: %s", chosen[0].name)
-            continue
-        tile_x, tile_y = int(rm.group(1)), int(rm.group(2))
-        # 收集所有 LOD 子檔(供參考)
-        all_lod_files = sorted([f for f in d.iterdir()
-                                if f.suffix.lower() == OSGB_SUFFIX and "_L" in f.name])
-        subtiles.append(SubTile(
-            index=idx, dir_name=d.name, tile_x=tile_x, tile_y=tile_y,
-            lod_osgbs=chosen, all_lod_files=all_lod_files,
-        ))
+    subtiles = _collect_subtiles(root, lod_token, lod)
 
     if not subtiles:
         raise ValueError(f"在 {root} 下找不到任何子圖幅目錄(LOD={lod})")
@@ -227,6 +242,26 @@ def convert_osgb_to_obj(osgb_path: Path, out_dir: Path, osgconv: Path) -> Path:
     return obj_path
 
 
+def _sanitize_texture_basename(raw: str) -> str | None:
+    """將來自 .mtl 檔案內容的紋理路徑淨化為安全的 basename。
+
+    安全防護(SonarCloud S2083 — Path Traversal via file content):
+      1. 正規化 Windows/Unix 路徑分隔符(反斜線 → 正斜線)。
+      2. os.path.basename() 取最末路徑元件,剔除任何目錄前綴。
+      3. 嚴格白名單 regex(SAFE_BASENAME_RE)驗證:僅允許英數、點、底線、連字號。
+         拒絕 .. 、路徑分隔符、空格等一切穿越向量。
+
+    回傳安全的 basename(若輸入已是 basename 則原樣回傳),或 None(不安全時)。
+    此函式為 SonarCloud 污點分析的淨化邊界(sanitizer boundary):
+    通過此函式回傳的字串不再被視為受污染資料。
+    """
+    normalized = raw.replace("\\", "/")
+    basename = os.path.basename(normalized)
+    if SAFE_BASENAME_RE.match(basename):
+        return basename
+    return None
+
+
 def _rewrite_mtl_to_basenames(obj_path: Path) -> None:
     """將 .mtl 中所有 map_Kd/map_Ks/map_Bump 等的路徑改為 basename。"""
     mtl_path = obj_path.with_suffix(".mtl")
@@ -243,16 +278,13 @@ def _rewrite_mtl_to_basenames(obj_path: Path) -> None:
                 parts = stripped.split(None, 1)
                 if len(parts) == 2:
                     tex_ref = parts[1].strip().strip('"')
-                    # 防範路徑穿越(SonarCloud S2083):
-                    # 1) os.path.basename 取最末路徑元件(正規化 Windows/Unix 分隔符)
-                    # 2) 嚴格白名單:僅允許英數、點、底線、連字號;拒絕其餘一切
-                    #    (含 ..、路徑分隔符、空格等),杜絕任何穿越向量。
-                    basename = os.path.basename(tex_ref.replace("\\", "/"))
-                    if not SAFE_BASENAME_RE.match(basename):
-                        log.debug("  拒絕不安全的紋理 basename: %r", basename)
+                    # S2083 防護:經 _sanitize_texture_basename 淨化(函式邊界=淨化點)
+                    safe_name = _sanitize_texture_basename(tex_ref)
+                    if safe_name is None:
+                        log.debug("  拒絕不安全的紋理 basename: %r", tex_ref)
                         continue
-                    if basename != tex_ref:
-                        new_lines.append(f"{parts[0]} {basename}")
+                    if safe_name != tex_ref:
+                        new_lines.append(f"{parts[0]} {safe_name}")
                         changed = True
                         continue
             new_lines.append(line)

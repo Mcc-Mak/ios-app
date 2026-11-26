@@ -296,7 +296,8 @@ namespace HKGrid.Streaming
                 _lastGroundY = bestHit.point.y;
                 _groundEverFound = true;
                 _isGrounded = true;  // v2.2.13
-                Debug.Log($"[TouchPlayerController] OnSpawned: 地面 Y={bestHit.point.y:F1}, 攝影機 Y={transform.position.y:F1}");
+                Debug.Log($"[TouchPlayerController] OnSpawned: 地面 Y={bestHit.point.y:F1}, 攝影機 Y={transform.position.y:F1}, " +
+                          $"collider='{bestHit.collider?.gameObject.name}'");
             }
             else
             {

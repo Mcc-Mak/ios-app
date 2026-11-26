@@ -9,6 +9,33 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.6.3] - 2026-11-26
+
+### 變更(真實網格碰撞器取代 GroundFill + 修正 SonarCloud S2083/S3776)
+
+**A. 地面系統改用真實攝影測量網格碰撞器(停用 GroundFill)**
+
+- v2.6.2 以前使用 `ChunkStreamBootstrapper.CreateChunkFill` 產生的 8×8 高度場網格(GroundFill)作為地面,引發三個已確認問題:
+  1. **邊界空隙**:`(i+0.5)/res` 頂點置位使 GroundFill 內縮 ~9m/邊,相鄰分塊之間有 ~18m 空隙,玩家在分塊邊界與 spawn 點墜落。
+  2. **建物頂點污染**:逐格取 min-Y 會把屋頂高度當地面(`GROUND_BAND=40m` 濾除高樓但保留 ≤40m 建物),產生錯誤高度的「偽地面」。
+  3. **可見偽地面**:GroundFill 的 `MeshRenderer`(橄欖綠 Standard 材質)穿模顯示。
+- **修正**:`ChunkStreamConfig` 改為 `addChunkColliders=1` + `groundFillEnabled=0`。地面跟隨射線直接命中真實攝影測量網格的 `MeshCollider`(道路、地形、建物底部);`CharacterController` 同時提供建物水平碰撞。
+- GroundFill 程式碼保留(停用時為死碼)以利回退。
+
+**B. GroundFill 頂點 extent 修正(保留供回退使用)**
+
+- `CreateChunkFill` 頂點置位由 `(i+0.5)/res` 改為 `i/(res-1)`,涵蓋完整 0%..100% extent,相鄰 GroundFill 相接。新增 `GROUND_BAND=40m` 過濾建物頂點。雖然 v2.6.3 已停用 GroundFill,此修正保留以備未來重新啟用。
+
+**C. 修正 SonarCloud S2083(BLOCKER 路徑穿越)**
+
+- `convert_osgb_to_chunks._rewrite_mtl_to_basenames()` 的白名單正規表達式由 `^[A-Za-z0-9._-]+$` 改為 `^[A-Za-z0-9._+\-]+$`(接受 CSDI 材質檔名的 `+` 字元,如 `Tile_+155_+171_L18_0000_t_0.jpg`)。
+- 舊正規表達式錯誤拒絕所有 CSDI 材質檔名 → 材質被丟棄 → GLB 無貼圖。
+- 新增 `_sanitize_texture_basename()` 為獨立淨化函式(SonarCloud 污染分析以函式呼叫邊界為淨化點)。
+
+**D. 修正 SonarCloud S3776(認知複雜度)**
+
+- `discover_subtiles` 重構為四個輔助函式:`_resolve_osgb_root`、`_select_lod_files`、`_parse_tile_coords`、`_collect_subtiles`。主函式認知複雜度 23 → ~6。
+
 ## [v2.6.2] - 2026-11-26
 
 ### 變更(跳躍改右側 + 修正跨圖幅移動 + IPA 改名 HK_FPS + SonarCloud S2083)
