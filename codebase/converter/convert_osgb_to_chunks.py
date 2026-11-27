@@ -84,6 +84,8 @@ class SubTile:
     tile_y: int                 # Tile_+Y 的 Y
     lod_osgbs: list[Path] = field(default_factory=list)   # 所選 LOD 的 .osgb 檔(root/l15/l16 為單檔;l17+ 為多檔,自動合併)
     all_lod_files: list[Path] = field(default_factory=list)  # 所有含 _L 的 .osgb(參考用)
+    lod_used: str = ""          # v2.6.8: 實際使用的 LOD(= lod,或 fallback);供混合 LOD 報告
+    base_osgbs: list[Path] = field(default_factory=list)  # v2.6.9: base LOD 檔案(供覆蓋率比較)
 
 
 @dataclass
@@ -100,6 +102,7 @@ class ChunkRecord:
     triangles: int
     neighbors: list[str]
     priority: int = 1
+    lod_used: str = ""          # v2.6.9: 實際使用的 LOD(lod / lod_fallback / lod_base)
 
 
 # ────────────────────────── Stage 1: 探索 OSGB 結構 ──────────────────────────
@@ -137,9 +140,23 @@ def _parse_tile_coords(filename: str) -> tuple[int, int] | None:
     return int(rm.group(1)), int(rm.group(2))
 
 
-def _collect_subtiles(root: Path, lod_token: str | None, lod: str) -> list[SubTile]:
-    """掃描根目錄的子圖幅,收集各子圖幅的 LOD .osgb 檔。"""
+def _collect_subtiles(root: Path, lod_token: str | None, lod: str,
+                      lod_fallback_token: str | None = None,
+                      lod_fallback: str | None = None,
+                      lod_base_token: str | None = None,
+                      lod_base: str | None = None) -> list[SubTile]:
+    """掃描根目錄的子圖幅,收集各子圖幅的 LOD .osgb 檔。
+
+    v2.6.8: 支援 LOD fallback——當主 LOD (lod_token) 在某子圖幅找不到檔案時,
+    自動改用 fallback LOD (lod_fallback_token)。確保所有子圖幅都有資料(混合 LOD),
+    避免高 LOD 覆蓋不全造成的地面空洞。
+
+    v2.6.9: 支援 LOD base——同時收集 base LOD (lod_base_token) 檔案,供後續覆蓋率
+    比較。若主 LOD 覆蓋率不足(< base 的 80%),則改用 base LOD。實際選擇在預掃描
+    階段執行(需要轉換 OBJ 後才能比較面積)。
+    """
     subtiles: list[SubTile] = []
+    fallback_count = 0
     for d in sorted(root.iterdir()):
         if not d.is_dir():
             continue
@@ -148,6 +165,15 @@ def _collect_subtiles(root: Path, lod_token: str | None, lod: str) -> list[SubTi
             continue
         idx = int(m.group(2))
         chosen = _select_lod_files(d, lod_token)
+        used_lod = lod
+        if not chosen and lod_fallback_token is not None:
+            # v2.6.8: 主 LOD 無檔案 → 回退至 fallback LOD
+            chosen = _select_lod_files(d, lod_fallback_token)
+            if chosen:
+                used_lod = lod_fallback
+                fallback_count += 1
+                log.info("子圖幅 %s 無 %s 檔案,回退至 %s(%d 檔)",
+                         d.name, lod, lod_fallback, len(chosen))
         if not chosen:
             log.warning("子圖幅 %s 找不到 LOD=%s 的 %s(跳過)", d.name, lod, OSGB_SUFFIX)
             continue
@@ -158,14 +184,24 @@ def _collect_subtiles(root: Path, lod_token: str | None, lod: str) -> list[SubTi
         tile_x, tile_y = coords
         all_lod_files = sorted([f for f in d.iterdir()
                                 if f.suffix.lower() == OSGB_SUFFIX and "_L" in f.name])
+        # v2.6.9: 收集 base LOD 檔案(供覆蓋率比較)
+        base_files: list[Path] = []
+        if lod_base_token is not None:
+            base_files = _select_lod_files(d, lod_base_token)
         subtiles.append(SubTile(
             index=idx, dir_name=d.name, tile_x=tile_x, tile_y=tile_y,
             lod_osgbs=chosen, all_lod_files=all_lod_files,
+            lod_used=used_lod,
+            base_osgbs=base_files,
         ))
+    if fallback_count > 0:
+        log.info("混合 LOD:%d 個子圖幅回退至 %s(主 LOD=%s)", fallback_count, lod_fallback, lod)
     return subtiles
 
 
-def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tuple[Path, list[SubTile]]:
+def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root",
+                      lod_fallback: str | None = None,
+                      lod_base: str | None = None) -> tuple[Path, list[SubTile]]:
     """
     輸入可能是 .zip 或已解壓目錄。回傳 (根目錄, 子圖幅清單)。
     預期結構:<root>/<SheetNo>-<N>/Tile_+X_+Y.osgb(+ LOD 子檔)
@@ -175,6 +211,9 @@ def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tu
       "l15"  — 第 15 層 LOD(檔名含 _L15_)。
       "l16"  — 第 16 層 LOD(檔名含 _L16_)。建物有真正牆面,視覺顯著改善。
       每個子圖幅的 root/l15/l16 皆為單一 .osgb 檔(L17+ 才分裂為四元樹多檔)。
+
+    v2.6.8: lod_fallback——當主 lod 在某子圖幅無檔案時,自動回退至此 LOD。
+      用於混合 LOD 場景(如 l19 主 + l18 回填),確保所有子圖幅都有資料。
     """
     root = _resolve_osgb_root(input_path, work_dir)
 
@@ -186,13 +225,27 @@ def discover_subtiles(input_path: Path, work_dir: Path, lod: str = "root") -> tu
     # LOD 選擇:root = 檔名不含 _L;lNN = 檔名含 _L<N>_(
     # l17+ 一個子圖幅會分裂為多個 .osgb,全部收集後合併為單一分塊)。
     lod_token = None if lod == "root" else f"_L{lod[1:]}_"
+    lod_fallback_token = None
+    if lod_fallback is not None:
+        lod_fallback_token = None if lod_fallback == "root" else f"_L{lod_fallback[1:]}_"
 
-    subtiles = _collect_subtiles(root, lod_token, lod)
+    # v2.6.9: lod_base token(供覆蓋率比較的基底 LOD)
+    lod_base_token = None
+    if lod_base is not None:
+        lod_base_token = None if lod_base == "root" else f"_L{lod_base[1:]}_"
+
+    subtiles = _collect_subtiles(root, lod_token, lod,
+                                 lod_fallback_token=lod_fallback_token,
+                                 lod_fallback=lod_fallback,
+                                 lod_base_token=lod_base_token,
+                                 lod_base=lod_base)
 
     if not subtiles:
         raise ValueError(f"在 {root} 下找不到任何子圖幅目錄(LOD={lod})")
 
-    log.info("發現 %d 個子圖幅(LOD=%s)", len(subtiles), lod)
+    log.info("發現 %d 個子圖幅(LOD=%s%s)",
+             len(subtiles), lod,
+             f", fallback={lod_fallback}" if lod_fallback else "")
     return root, subtiles
 
 
@@ -793,6 +846,16 @@ def main() -> int:
                         "l16=第16層(建物有真正牆面,預設,推薦);l17/l18=更細"
                         "(每子圖幅分裂為多檔,自動合併,三角面約 l16 的 4×/16×)。"
                         "接受 root 或 lNN。預設 l16。")
+    p.add_argument("--lod-fallback", type=_lod_type, default=None,
+                   help="v2.6.8: LOD 回填——當主 --lod 在某子圖幅無檔案時,自動改用此 LOD。"
+                        "用於混合 LOD(如 --lod l19 --lod-fallback l18),確保所有子圖幅都有資料,"
+                        "避免高 LOD 覆蓋不全造成的地面空洞。接受 root 或 lNN。預設不自動回填。")
+    p.add_argument("--lod-base", type=_lod_type, default=None,
+                   help="v2.6.9: LOD 基底——以指定 LOD 為覆蓋率底線。若主 --lod 的 XY 覆蓋面積"
+                        "小於 base LOD 的 80%%,則改用 base LOD(確保完整覆蓋)。"
+                        "用於「l18 為底 + l19 增強解析」場景:--lod l19 --lod-base l18。"
+                        "與 --lod-fallback 不同:fallback 處理「完全無檔」;base 處理「有檔但覆蓋不足」。"
+                        "接受 root 或 lNN。預設不啟用。")
     p.add_argument("--verbose", action="store_true")
     p.add_argument("--no-floating-removal", action="store_true",
                    help="停用浮空地面移除(v2.2.2 新增)。預設啟用,但可能過度移除"
@@ -831,9 +894,12 @@ def main() -> int:
     work_dir.mkdir(exist_ok=True)
 
     # Stage 1: 探索
-    root, subtiles = discover_subtiles(input_path, work_dir, lod=args.lod)
+    root, subtiles = discover_subtiles(input_path, work_dir, lod=args.lod,
+                                       lod_fallback=args.lod_fallback,
+                                       lod_base=args.lod_base)
     sheet_name = _guess_sheet_name(root)
-    log.info("圖幅: %s,子圖幅數: %d,LOD: %s", sheet_name, len(subtiles), args.lod)
+    log.info("圖幅: %s,子圖幅數: %d,LOD: %s%s", sheet_name, len(subtiles), args.lod,
+             f" (+fallback {args.lod_fallback})" if args.lod_fallback else "")
 
     neighbors_map = compute_neighbors(subtiles)
 
@@ -856,7 +922,7 @@ def main() -> int:
             objs: list[Path] = []
             for osgb in s.lod_osgbs:
                 objs.append(convert_osgb_to_obj(osgb, obj_out, osgconv))
-            obj_cache[s.index] = objs
+
             # 快速讀取頂點範圍(不載入紋理);L17+ 多檔全部納入 bbox
             import trimesh
             c_min = np.array([np.inf, np.inf, np.inf])
@@ -876,6 +942,46 @@ def main() -> int:
                     c_min = np.minimum(c_min, va.min(axis=0))
                     c_max = np.maximum(c_max, va.max(axis=0))
                     chunk_verts.append(va)
+
+            # v2.6.9: LOD base 覆蓋率比較——若主 LOD 的 XY 覆蓋面積 < base LOD 的 80%,
+            # 改用 base LOD(確保完整覆蓋,避免地面空洞)。用於「l18 為底 + l19 增強」場景。
+            if (args.lod_base is not None and s.base_osgbs
+                    and s.lod_used != args.lod_base and np.isfinite(c_min[0])):
+                primary_xy = (c_max[0] - c_min[0]) * (c_max[1] - c_min[1])
+                base_obj_out = work_dir / f"{s.dir_name}_base"
+                base_objs: list[Path] = []
+                for osgb in s.base_osgbs:
+                    base_objs.append(convert_osgb_to_obj(osgb, base_obj_out, osgconv))
+                b_min = np.array([np.inf, np.inf, np.inf])
+                b_max = np.array([-np.inf, -np.inf, -np.inf])
+                b_verts: list[np.ndarray] = []
+                for obj_path in base_objs:
+                    sc = trimesh.load(str(obj_path), force="scene")
+                    if isinstance(sc, trimesh.Scene):
+                        for _n, g in sc.geometry.items():
+                            if hasattr(g, "vertices") and len(g.vertices) > 0:
+                                va = np.asarray(g.vertices)
+                                b_min = np.minimum(b_min, va.min(axis=0))
+                                b_max = np.maximum(b_max, va.max(axis=0))
+                                b_verts.append(va)
+                    elif hasattr(sc, "vertices") and len(sc.vertices) > 0:
+                        va = np.asarray(sc.vertices)
+                        b_min = np.minimum(b_min, va.min(axis=0))
+                        b_max = np.maximum(b_max, va.max(axis=0))
+                        b_verts.append(va)
+                base_xy = (b_max[0] - b_min[0]) * (b_max[1] - b_min[1]) if np.isfinite(b_min[0]) else 0
+                ratio = primary_xy / base_xy if base_xy > 0 else 1.0
+                if ratio < 0.8:
+                    log.info("  子圖幅 %d: %s 覆蓋率 %.0f%%(< 80%%),改用 %s(base)",
+                             s.index, s.lod_used, ratio * 100, args.lod_base)
+                    objs = base_objs
+                    s.lod_used = args.lod_base
+                    c_min, c_max, chunk_verts = b_min, b_max, b_verts
+                else:
+                    log.debug("  子圖幅 %d: %s 覆蓋率 %.0f%%(≥ 80%%),保留",
+                              s.index, s.lod_used, ratio * 100)
+
+            obj_cache[s.index] = objs
             all_min = np.minimum(all_min, c_min)
             all_max = np.maximum(all_max, c_max)
             # 邊界頂點:靠近本子圖幅 bbox 任一面的頂點
@@ -979,6 +1085,7 @@ def main() -> int:
             triangles=ct,
             neighbors=nbr_ids,
             priority=1,
+            lod_used=s.lod_used,
         )
         chunks.append(rec)
         total_bytes += cb

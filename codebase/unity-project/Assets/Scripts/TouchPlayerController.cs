@@ -44,8 +44,8 @@ namespace HKGrid.Streaming
         [Header("跳躍(v2.2.13)")]
         [Tooltip("跳躍初速(m/s)。5 m/s ≈ 1.3m 高度(g=9.81)。僅地面狀態可跳(單跳,無二段跳)")]
         public float jumpSpeed = 5f;
-        [Tooltip("跳躍冷卻時間(秒)。著地後需等待此時間才能再跳")]
-        public float jumpCooldown = 0.5f;
+        [Tooltip("跳躍冷卻時間(秒)。著地後需等待此時間才能再跳。v2.6.7:設為 0 停用冷卻(著地即可再跳)")]
+        public float jumpCooldown = 0f;
 
         [Header("視角(pan/tilt)")]
         public float lookSensitivityTouch = 0.4f;
@@ -328,12 +328,18 @@ namespace HKGrid.Streaming
 
             // v2.6.0: 左側搖桿 = 移動。移動在 ApplyMovement 中套用。
 
-            // v2.2.5: 按 L 鍵印出攝影機座標(Unity Editor 除錯用)
+            // v2.2.5: 按 L 鍵印出攝影機座標 + 面向方向(Unity Editor 除錯用)
+            // v2.6.5: 新增羅盤方位(北/東/南/西),方便判斷螢幕左右對應的地理方向
             if (Input.GetKeyDown(KeyCode.L))
             {
                 Vector3 p = transform.position;
-                Debug.Log($"[TouchPlayerController] 座標: X={p.x:F2}, Y={p.y:F2}, Z={p.z:F2} | " +
-                          $"yaw={_yaw:F1}, pitch={_pitch:F1} | FOV={_cam.fieldOfView:F1}");
+                // 羅盤方位:yaw=0→南(S), 90→東(E), 180→北(N), 270→西(W)
+                // bearing = 180 - yaw(正規化至 0–360°)
+                float bearing = ((180f - _yaw) % 360f + 360f) % 360f;
+                string[] dirs = { "北 (N)", "東北 (NE)", "東 (E)", "東南 (SE)", "南 (S)", "西南 (SW)", "西 (W)", "西北 (NW)" };
+                int idx = Mathf.RoundToInt(bearing / 45f) % 8;
+                Debug.Log($"[TouchPlayerController] 座標: X={p.x:F2}(東+), Y={p.y:F2}(高), Z={p.z:F2}(南+) | " +
+                          $"面向:{dirs[idx]} ({bearing:F0}°) | yaw={_yaw:F1}, pitch={_pitch:F1} | FOV={_cam.fieldOfView:F1}");
             }
 
             // v2.2.13: 跳躍輸入(桌面 SPACE;v2.6.2: 行動右側雙擊)

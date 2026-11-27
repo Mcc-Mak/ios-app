@@ -28,7 +28,7 @@ MonoBehaviour:
   groundFillColor: {r: 0.35, g: 0.37, b: 0.28, a: 1}
   groundFillBelowOffset: 0.05
   groundFillSampleResolution: 8
-  spawnTileCode: 6-SE-17C
+  spawnTileCode: 6-SE-21A
   preloadAllChunks: 1
   keepAllChunksAfterPreload: 1
   preloadDeferBudget: 0.5

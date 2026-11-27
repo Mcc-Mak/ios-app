@@ -15,14 +15,17 @@
 # 參數:
 #   -Version      — 版本標籤(預設:2.2.15,對應 IOS_VERSION)
 #   -Upload       — 若設定,自動用 gh CLI 上傳至 GitHub Release(需 gh auth login)
-#   -ChunksSource — IPA 分塊來源目錄(預設:v2.2.14 2MB IPA 分塊)。
+#   -ChunksSource — IPA 分塊來源目錄(預設:6-SE-16D+17C+21A+21B+22A 五圖幅無縫 l19hybrid 分塊)。
 #                   設定 IPA_CHUNKS_SOURCE_DIR 環境變數,BuildIOS.cs 會於匯出前
-#                   複製至 StreamingAssets/Chunks(覆寫本地高解析度分塊)。
-#                   不設定時沿用 StreamingAssets/Chunks 現有內容(向後相容)。
+#                   清空 StreamingAssets/Chunks 並複製來源內容(manifest.json + *.glb)。
+#                   v2.6.7: 預設為五圖幅無縫來源(22A 東南 + 17C 北 + 21B 西南 + 21A 最西 + 16D 西北)。
+#                            以 22A 為基準套用 E-W 反轉公式修正各圖幅 positionOffset,
+#                            確保 21A↔21B↔22A 與 16D↔17C 東西無縫接合;spawn 點改於 21A。
+#                   v2.6.8: LOD 升級為 l19hybrid(l19 主 + l18 回填缺塊,確保 100 塊全覆蓋)。
 param(
     [string]$Version = "2.2.15",
     [switch]$Upload,
-    [string]$ChunksSource = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\11-NW-15B_chunks_ipa_2mb_v2214"
+    [string]$ChunksSource = "C:\Users\ccmak\AppData\Local\Temp\opencode\csdi\5-tiles-seamless_l19hybrid_nofloat"
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,12 +53,26 @@ $env:IOS_OUTPUT_DIR = $XcodeExportDir
 
 # v2.2.15: IPA 分塊來源 — BuildIOS.cs 會於匯出前複製至 StreamingAssets/Chunks,
 # 覆寫本地高解析度分塊(98MB Unity 版)。未設定時沿用現有內容(向後相容)。
+# v2.6.7: 新增一致性檢查——比對 -ChunksSource 與 StreamingAssets/Chunks 的 GLB 數量,
+#   若不符則警告(確保 IPA 與 Unity Play 使用相同 3D 模型)。
 if ($ChunksSource -and (Test-Path $ChunksSource)) {
     $env:IPA_CHUNKS_SOURCE_DIR = $ChunksSource
     $ipaGlbCount = (Get-ChildItem "$ChunksSource\*.glb" -ErrorAction SilentlyContinue).Count
     $ipaTotalMB = [math]::Round((Get-ChildItem "$ChunksSource\*.glb" -ErrorAction SilentlyContinue |
         Measure-Object -Property Length -Sum).Sum / 1MB, 2)
     Write-Output "  IPA 分塊來源   : $ChunksSource ($ipaGlbCount glbs, $ipaTotalMB MB)"
+    # v2.6.7: 一致性檢查
+    $unityChunksDir = "$ProjectPath\Assets\StreamingAssets\Chunks"
+    if (Test-Path "$unityChunksDir\manifest.json") {
+        $unityGlbCount = (Get-ChildItem "$unityChunksDir\*.glb" -ErrorAction SilentlyContinue).Count
+        if ($unityGlbCount -eq $ipaGlbCount) {
+            Write-Output "  ✓ IPA 與 Unity 一致:兩者皆 $ipaGlbCount 個 GLB(相同 3D 模型)"
+        } else {
+            Write-Warning "⚠ IPA 來源($ipaGlbCount GLB)與 Unity StreamingAssets($unityGlbCount GLB)不符!"
+            Write-Warning "  BuildIOS.cs 匯出前會以 IPA 來源覆寫 StreamingAssets,IPA 將使用 IPA 來源。"
+            Write-Warning "  若希望 IPA = Unity,請先將 IPA 來源同步至 StreamingAssets/Chunks。"
+        }
+    }
 } elseif ($ChunksSource) {
     Write-Warning "⚠ 指定的 -ChunksSource 不存在:$ChunksSource"
     Write-Warning "  將沿用 StreamingAssets/Chunks 現有內容(可能為高解析度 Unity 版)"

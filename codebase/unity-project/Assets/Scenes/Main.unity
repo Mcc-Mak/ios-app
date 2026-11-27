@@ -346,7 +346,7 @@ MonoBehaviour:
   moveSpeed: 8.75
   sprintMultiplier: 2
   jumpSpeed: 5
-  jumpCooldown: 0.5
+  jumpCooldown: 0
   lookSensitivityTouch: 0.2
   lookSensitivityMouse: 2
   minPitch: -85
@@ -411,7 +411,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   maxLines: 25
   fontSizeRatio: 0.022
-  show: 1
+  show: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

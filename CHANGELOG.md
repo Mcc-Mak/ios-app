@@ -9,6 +9,161 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.6.7] - 2026-11-27
+
+### 變更(五圖幅 LOD 升級 l18→l19hybrid + 修正 spawn 藍屏根因)
+
+**A. LOD 升級:l18 → l19hybrid(l19 為主,l18 回填缺塊)**
+
+- v2.6.6/v2.6.7 初版五圖幅(22A + 17C + 21B + 21A + 16D)使用 l18。本版將全部五圖幅升級至 l19,以提升模型細節。
+- **問題**:CSDI OSGB 源資料 l19 覆蓋不完整——部分子圖幅無 l19 檔案(22A 僅 7/20、21B 16/20、21A 18/20 有 l19),純 l19 轉換會跳過缺塊子圖幅 → 地面大洞。
+- **解法:轉換器新增 `--lod-fallback` 選項**(向下相容新功能)。當主 `--lod` 在某子圖幅無檔案時,自動回退至指定 LOD。本版使用 `--lod l19 --lod-fallback l18`,確保所有 100 個子圖幅都有資料(l19 主體 + l18 回填缺塊),無地面空洞。`SubTile.lod_used` 欄位記錄各子圖幅實際使用的 LOD。
+- **每圖幅 l19/l18 混合比例**(經 `--lod-base` 覆蓋率檢查後最終結果):
+
+  | 圖幅 | l19 子圖幅 | l18 回填 | 說明 |
+  | --- | ---: | ---: | --- |
+  | 6-SE-16D | 20/20 | 0 | 純 l19(覆蓋率全數 ≥ 80%) |
+  | 6-SE-17C | 18/20 | 2 | 2 子圖幅 l19 覆蓋率 < 80%(最差 15%)→ l18 |
+  | 6-SE-21A | 18/20 | 2 | 2 子圖幅 l19 覆蓋率 < 80% → l18 |
+  | 6-SE-21B | 15/20 | 5 | 5 子圖幅 l19 覆蓋率 < 80%(最差 2%)→ l18 |
+  | 6-SE-22A | 5/20 | 15 | 22A 為 SE 邊緣,l19 源資料覆蓋最少(最差 5%) |
+
+- **轉換參數**(沿用 l18 IPA-friendly 食譜,僅改 LOD):`--lod l19 --lod-fallback l18 --lod-base l18 --no-floating-removal --max-texture-px 512 --max-chunk-mb 15 --max-total-mb 800 --decimate-threshold 5000`。
+- **l18 vs l19hybrid 大小對照**:
+
+  | 圖幅 | l18 MB | l18 三角面 | l19hybrid MB | l19hybrid 三角面 | size 倍率 | tris 倍率 |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 6-SE-16D | 69.8 | 727,290 | 140.1 | 1,264,170 | 2.01x | 1.74x |
+  | 6-SE-17C | 149.3 | 1,676,835 | 234.7 | 2,513,311 | 1.57x | 1.50x |
+  | 6-SE-21A | 112.2 | 1,279,072 | 178.3 | 1,907,054 | 1.59x | 1.49x |
+  | 6-SE-21B | 85.0 | 856,047 | 142.1 | 1,358,055 | 1.67x | 1.59x |
+  | 6-SE-22A | 62.2 | 716,549 | 65.3 | 787,828 | 1.05x | 1.10x |
+  | **總計** | **478.5** | **5,255,793** | **760.5** | **7,830,418** | **1.59x** | **1.49x** |
+
+  - 16D 全數 l19,細節提升最顯著。22A 因 l19 源資料覆蓋率普遍不足(15/20 子圖幅回退 l18),大小接近純 l18。總計 760.5 MB 低於 800 MB 預算。
+
+**B. 五圖幅無縫接合(E-W 反轉公式,l19hybrid 校正值)**
+
+- 五圖幅布局:22A(東南/基準)+ 17C(北)+ 21B(西南)+ 21A(最西,21B 西側)+ 16D(西北,21B 北側,與 17C 同列)。
+- **E-W 反轉通用公式**(以 22A 為基準 R,圖幅 T 目標格偏移 (dx, dy)):
+  - `dx>0 = 北、dx<0 = 南`(南北軸 `positionOffset[1]` 未反轉);`dy>0 = 西、dy<0 = 東`(東西軸 `positionOffset[0]` 在 Unity 中反轉,值越大越西)。
+  - `T.corrected[0] = R[0] + dy × TILE_W`;`T.corrected[1] = R[1] + dx × TILE_H`;`T.corrected[2] = T.original[2]`(高度不變)。
+  - 常數(l19hybrid):`TILE_W = 749.810`;`TILE_H = 598.908`(l18 為 598.727,差異來自各 LOD 之子圖幅原點)。
+- **五圖幅修正後 positionOffset(l19hybrid)**:
+
+  | 圖幅 | 目標 (dx,dy) | 修正後 positionOffset |
+  | --- | --- | --- |
+  | 6-SE-22A | (0, 0) | [750.07, −596.34, 8.55] |
+  | 6-SE-17C | (+1, 0) | [750.07, 2.57, 8.50] |
+  | 6-SE-21B | (0, +1) | [1499.88, −596.34, −13.80] |
+  | 6-SE-21A | (0, +2) | [2249.69, −596.34, −21.50] |
+  | 6-SE-16D | (+1, +1) | [1499.88, 2.57, 0.00] |
+
+- **無縫鄰接驗證(六項全數通過)**:21A↔21B、21B↔22A、16D↔21B、16D↔17C 東西/南北差距皆為整數倍 TILE_W/TILE_H ✓。
+
+**C. 修正 spawn 藍屏根因(無縫 manifest 的 centroid/bbox 未同步位移)**
+
+- **症狀**:Unity Play / IPA 啟動後畫面全藍(藍屏),玩家落入虛空。Console 顯示 `OnSpawned: 地面未找到`。此為 v2.6.6/v2.6.7 初版即存在的 bug(發生於 l18 資料 + 舊無縫 manifest)。
+- **根因**:無縫校正腳本(`build_*_seamless.py` / `apply_seamless_ew`)對各圖幅 `positionOffset` 套用 E-W 反轉位移(`shift`),但 **`centroid` 與 `bbox` 未同步位移**,停留在原始(未位移)座標系。後果:
+  - `ChunkStreamer` 渲染:容器節點於 `positionOffset`(已位移)+ GLB 頂點(圍繞本地 centroid)→ 網格渲染於 `positionOffset_shifted + local_centroid` = `centroid_original + shift`(位移後位置)。
+  - `ChunkStreamBootstrapper` spawn:累加 `c.CentroidVector`(manifest centroid,未位移)→ spawn 落於 `centroid_original`(未位移座標系),距最近渲染分塊約 **1985 m**(21A 實測,shift ≈ 2999 m)→ 地面跟隨射線(250/500 m)打不到任何網格 → 永墜 → 藍屏。
+  - 經 GLB 頂點實測確認:GLB 頂點已由轉換器 recenter 至圖幅 centroid(頂點圍繞本地 centroid,非全域座標);`merge_tiles.py` 將 `positionOffset` 設為圖幅偏移、`centroid` 設為全域座標(= 本地 centroid + 圖幅偏移)。無縫位移僅改 `positionOffset` → `centroid` 與渲染位置分歧 `shift` 量。
+- **修正**:無縫 manifest 產生時,`positionOffset`、`centroid`、`bbox` 三者皆套用相同 `shift`(X/Y 軸;Z 軸 shift = 0 不變)。修正後 `centroid` = `positionOffset_shifted + local_centroid` = 渲染網格中心,spawn(`avg centroid`)落於 21A 渲染中心,距最近分塊僅 **77 m**(實測)。`ChunkStreamBootstrapper.cs` spawn 邏輯維持原樣(`c.CentroidVector`,無需改動)——根因在 manifest 資料,非程式碼。
+- 修正腳本:`fix_seamless_centroid.py`(事後修補既有 manifest)+ `convert_5tiles_l19hybrid.py` 的 `apply_seamless_ew`(未來重跑時同步位移 centroid/bbox)。
+- `SetupScene.cs`(建置權威)與 `ChunkStreamConfig.asset`(Unity Play)的 `spawnTileCode` 均為 `6-SE-21A`。
+
+**D. 其他**
+
+- `export_xcode_project.ps1` 預設 `-ChunksSource` 改為 `5-tiles-seamless_l19hybrid_nofloat`;註解同步更新。
+- Unity 專案 `Assets/StreamingAssets/Chunks/`(gitignored)已回填 100 個 l19hybrid GLB + 新 `manifest.json`(760.5 MB,76 塊 l19 + 24 塊 l18),供 Unity Play 顯示正確資料;IPA 匯出時由 `BuildIOS.cs` 自 `-ChunksSource` 覆寫。`.meta` 由 Unity 匯入時自動重新生成(檔名與 l18 一致,沿用舊 `.meta`)。
+- 執行時影響:`spawnTileCode=6-SE-21A`(玩家出生於 21A 最西側,可向東依序進入 21B→22A,向北進入 16D/17C);`preloadAllChunks=true` 預載全部 100 分塊;`addChunkColliders=true`(真實網格為地面);`groundFillEnabled=false`(GroundFill 停用)。
+- 小地圖(M 鍵)顯示五個圖幅矩形:17C 與 16D 並列於北(16D 在 17C 西側),21A、21B、22A 並列於南(由西至東:21A—21B—22A)。
+- **已知**:17C/16D 北列與 22A/21B/21A 南列之間仍有約 599 m 南北空隙(自 v2.6.5 即存在,使用者未反映問題,暫不處理)。
+
+**E. l19 覆蓋率修正(轉換器新增 `--lod-base` 選項;v2.6.9)**
+
+- **問題**:CSDI l19 OSGB 源資料的部分子圖幅覆蓋率不足——l19 四元樹僅涵蓋部分分支,導致某些分塊的 XY 覆蓋面積僅為 l18 的 2%–80%。`--lod-fallback` 僅在子圖幅**完全無** l19 檔案時才回退,無法處理「有檔但覆蓋不足」→ 地面大洞。經實測 5 圖幅共 7 個分塊覆蓋不足:
+
+  | 圖幅 | 覆蓋不足分塊 | 最差覆蓋率 |
+  | --- | ---: | ---: |
+  | 6-SE-16D | 1 | 55% |
+  | 6-SE-17C | 3 | 15% |
+  | 6-SE-21A | 0 | 全數 ≥ 80% |
+  | 6-SE-21B | 1 | 2% |
+  | 6-SE-22A | 2 | 5% |
+
+- **解法**:轉換器新增 `--lod-base` 選項。指定基底 LOD(如 `--lod-base l18`),預掃描階段同時轉換主 LOD(l19)與基底 LOD(l18)的 OSGB → OBJ,比較 XY 覆蓋面積。若主 LOD 覆蓋率 < 基底 LOD 的 80%,自動改用基底 LOD(確保完整覆蓋)。所有分塊共用同一圖幅 centroid(無 recenter 不一致問題)。使用者命名為「l18 為底 + l19 增強解析」。
+- **與 `--lod-fallback` 的差異**:`--lod-fallback` 處理「完全無檔」(子圖幅無 l19 檔案 → 回退 l18);`--lod-base` 處理「有檔但覆蓋不足」(子圖幅有 l19 檔案但覆蓋率 < 80% → 改用 l18)。兩者可同時使用。
+- `SubTile.base_osgbs` 欄位儲存基底 LOD 檔案;`ChunkRecord.lod_used` 欄位記錄各分塊實際使用的 LOD(l19 / l18),序列化至 manifest.json(同時修正 v2.6.8 `lod_used` 未寫入 manifest 的問題)。
+- 轉換參數:`--lod l19 --lod-fallback l18 --lod-base l18 --no-floating-removal --max-texture-px 512 --max-chunk-mb 15 --max-total-mb 800 --decimate-threshold 5000`。
+- **重新轉換結果**:100 分塊,76 塊 l19 + 24 塊 l18,760.5 MB / 7,830,418 三角面。所有 6 項無縫驗證通過。`lod_used` 欄位已正確寫入 manifest.json。
+
+**F. 停用跳躍冷卻 + 確保 IPA 與 Unity 使用相同 3D 模型**
+
+- **停用跳躍冷卻**:`TouchPlayerController.jumpCooldown` 由 `0.5f` 改為 `0f`(著地即可再跳,無需等待 0.5 秒)。三處同步更新:`TouchPlayerController.cs` 預設值、`Main.unity` 序列化值、`SetupScene.cs` 建置權威覆寫。跳躍仍受 `!_isJumping`(必須著地)與 `_isGrounded`(必須在地面)雙重門控,避免空中連跳。
+- **IPA = Unity 一致性保證**:`export_xcode_project.ps1` 新增一致性檢查——比對 `-ChunksSource`(IPA 分塊來源)與 `StreamingAssets/Chunks`(Unity Play 來源)的 GLB 數量。相符時印出 `✓ IPA 與 Unity 一致`;不符時警告。實際資料流:匯出時 `BuildIOS.CopyIpaChunksIfNeeded()` 自 `-ChunksSource`(預設 `5-tiles-seamless_l19hybrid_nofloat`)複製 100 GLB 至 `StreamingAssets/Chunks` → 烘焙進 Xcode 專案 → CI `xcodebuild` 打包進 IPA;Unity Play 直接讀 `StreamingAssets/Chunks`(同一份 100 GLB)。兩者資料來源相同,確保 IPA 與 Unity 顯示相同的 l19hybrid 3D 模型。
+- 未建置/未發布(依指示待命)。
+
+## [v2.6.6] - 2026-11-27
+
+### 變更(重新加入 6-SE-21B,東緣與 6-SE-22A 西緣無縫接合)
+
+**A. 重新加入 6-SE-21B,三圖幅無縫接合(17C 北 + 22A 東南 + 21B 西南)**
+
+- v2.6.5 移除了 6-SE-21B(其擺放始終無法正確呈現)。本版重新加入 21B,並修正其擺放:將 21B 的 `positionOffset[0]` 位移 **+1499.62 m**,使其在 Unity 中東緣與 6-SE-22A 西緣無縫接合。
+- **問題根因**:CSDI 原始資料中 21B 與 22A 的 `positionOffset[0]` 差約 749.81 m(一個圖幅寬),但在 Unity 中 21B 原本出現在 22A 的**東側**(而非預期的西側),兩者背對背相連但方向錯誤。
+- **位移計算修正歷程**:
+  - **第一次嘗試(+746.566 m,以 manifest `bbox_min`/`bbox_max` 推導)**:假設 bbox 代表 Unity 中實際網格範圍,計算 21B 東緣與 22A 西緣的差距為 746.6 m,據此位移。**結果:21B 與 22A 完全重疊**——因為 bbox 並非 Unity 中的實際網格範圍(GLB 已 recenter,`positionOffset` 才是實際定位),位移一個圖幅寬後 21B 正好疊在 22A 上。
+  - **使用者修正邏輯**:位移 +750(約一個圖幅寬)造成重疊,表示 21B 從「錯誤側(東側)」移到了「與 22A 重疊」;要移到「正確側(西側)無縫接合」,需再移一個圖幅寬,合計 **+750 × 2 = +1500**。
+  - **精確值** = 2 × (22A.positionOffset[0] − 21B.positionOffset[0]) = 2 × (750.094 − 0.284) = **+1499.620 m**。
+  - 位移後:21B positionOffset[0] = 1499.90,22A positionOffset[0] = 750.09,差距 = 749.81(一個圖幅寬)→ 21B 在 Unity 中位於 22A 西側,東緣緊貼 22A 西緣。
+  - 南北對齊:21B 與 22A 的 positionOffset[1] 均約 −596.8 → 同一南北列,水平接合無高低錯位。
+- 合併後共 60 分塊(17C: 20 分塊 149.3 MB / 1,676,835 三角形;22A: 20 分塊 62.2 MB / 716,549 三角形;21B: 20 分塊 85.0 MB / 856,047 三角形),合計 296.5 MB / 3,249,431 三角形。
+- `manifest.json` 重建:`tiles=["6-SE-17C","6-SE-22A","6-SE-21B"]`、`chunkCount=60`、`source="6-SE-17C+22A+21B-seamless-l18-nofloat"`;21B 所有分塊 `positionOffset[0]` 已 +1499.620(原始 0.284 → 1499.904)。
+- 建立無縫三圖幅分塊來源目錄 `…\csdi\17c-22a-21b_seamless_l18_nofloat`(60 `.glb` + `manifest.json`),供 `export_xcode_project.ps1 -ChunksSource` 注入 IPA。
+- `export_xcode_project.ps1` 預設 `-ChunksSource` 改為 `17c-22a-21b_seamless_l18_nofloat`。
+- Unity 專案 `Assets/StreamingAssets/Chunks/` 已回填 21B 的 20 個 `.glb`(17C+22A 的 40 個已存在),共 60 個。`.meta` 由 Unity 匯入時自動重新生成。
+- 執行時影響:`spawnTileCode=6-SE-17C` 不變(玩家出生於 17C 北側,可向南巡航進入 22A,再向西進入 21B);`preloadAllChunks=true` 預載全部 60 分塊;`addChunkColliders=true`(真實網格為地面);`groundFillEnabled=false`(GroundFill 停用)。
+- 小地圖(M 鍵)將顯示三個圖幅矩形:17C(北)、22A(東南)、21B(西南),其中 21B 東緣緊貼 22A 西緣。
+- **已知**:17C 與 22A 之間仍有 594 m 南北空隙(自 v2.6.5 即存在,非本版引入);使用者未反映問題,暫不處理。
+- 未建置/未發布(依指示待命)。
+
+## [v2.6.5] - 2026-11-27
+
+### 變更(3D 模型回復為 6-SE-17C + 6-SE-22A 兩圖幅 + 預設隱藏診斷覆蓋層 + L 鍵羅盤方位與北朝上小地圖 + M 鍵小地圖切換 + SonarCloud 徽章)
+
+**A. 移除 6-SE-21B,回復為 6-SE-17C(北)+ 6-SE-22A(南)兩圖幅**
+
+- 先前嘗試於 6-SE-22A 西側加入 6-SE-21B 構成 L 型三圖幅(60 分塊),但其擺放始終無法正確呈現,故本版移除 21B,回復為 17C + 22A 兩圖幅(40 分塊)。
+- 合併後共 40 分塊(17C: 20 分塊 149.3 MB / 1,676,835 三角形;22A: 20 分塊 62.2 MB / 716,549 三角形),合計 211.5 MB / 2,393,384 三角形。
+- `manifest.json` 確認為兩圖幅版本:`tiles=["6-SE-17C","6-SE-22A"]`、`chunkCount=40`、`source="6-SE-17C+22A-l18-nofloat"`。
+- Unity 專案 `Assets/StreamingAssets/Chunks/` 已清空 21B 的 20 個 `.glb`,僅保留 17C+22A 共 40 個(來源目錄 `…\csdi\17c-22a_l18_nofloat`)。
+- `export_xcode_project.ps1` 預設 `-ChunksSource` 回復為 `17c-22a_l18_nofloat`;註解同步更新為「6-SE-17C + 6-SE-22A 兩圖幅」。
+- 執行時影響:`spawnTileCode=6-SE-17C` 不變(玩家出生於 17C,可向南巡航進入 22A);`preloadAllChunks=true` 預載全部 40 分塊;`addChunkColliders=true`(真實網格為地面);`groundFillEnabled=false`(GroundFill 停用)。
+- 未建置/未發布(依指示待命)。
+
+**B. 預設隱藏診斷覆蓋層(IPA 與 Unity 皆隱藏)— 修正「仍預設顯示」問題**
+
+- 根因:`SetupScene.Build()` 僅由 `BuildIOS.Export()` 於匯出時呼叫,**不會在 Unity Editor Play 模式執行**;而 `DebugOverlay` 欄位預設值不會覆寫既有場景已序列化的值。因此 `Main.unity` 中殘留的序列化 `show=true` 在 Editor Play 時生效 → 覆蓋層仍預設顯示。
+- 修正(四層保證):
+  1. `DebugOverlay.cs` 新增 `Awake()`,執行時強制 `show = false`(涵蓋 IPA 與 Unity Play;Awake 僅實體化時執行一次,不影響後續齒輪按鈕/Q 鍵切換)。
+  2. `Main.unity` 序列化值 `show: 1` → `show: 0`(Inspector 與 Editor Play 反映正確預設)。
+  3. `DebugOverlay.cs` 欄位預設 `show = true` → `show = false`(新建元件實例預設隱藏)。
+  4. `SetupScene.cs`(建置權威來源)掛載 `DebugOverlay` 後強制 `dbg.show = false`(匯出時保證)。
+- 畫面右上角齒輪按鈕(⚙)仍永遠顯示,點擊可切換覆蓋層顯示/隱藏;桌面 Unity 亦可按 Q 鍵切換。使用者可隨時開啟診斷資訊,但預設畫面乾淨。
+
+**C. L 鍵新增羅盤方位 + 北朝上小地圖;M 鍵切換持續小地圖**
+
+- `TouchPlayerController.cs` 的 L 鍵(原僅印座標/yaw/pitch 至 Console)新增羅盤方位:由 `yaw` 計算 8 方位(北/東北/東/…/西北)+ 角度,座標亦標註「東+」「南+」方便判讀。
+- `DebugOverlay.cs` 新增 L 鍵處理:計算攝影機 `transform.forward` 投影至水平面後的羅盤方位,並於畫面上方中央暫時顯示 5 秒(即使覆蓋層隱藏也可見)。顯示內容含:面向方位 + 角度、位置(X=東+, Z=南+)、以及「面南時:螢幕左=東, 右=西」等左右方向提示。
+- `DebugOverlay.cs` 新增 **M 鍵切換持續小地圖**:按 M 鍵顯示/隱藏北朝上小地圖(即使覆蓋層隱藏也可見)。小地圖內容:各圖幅矩形(藍框 + 代碼)、圖幅間連接線、玩家位置(黃點)+ 面向箭頭、N/S/E/W 方向標。圖幅資料由 Bootstrapper 於 manifest 載入時注入一次(`SetMiniMapTiles`),玩家位置/面向每幀自行更新。
+- `ChunkStreamBootstrapper.cs` 於 manifest 載入後計算各圖幅世界 bbox(中心 + 尺寸)注入 `DebugOverlay`;L 鍵另於 Console 印出各圖幅相對玩家的距離與方向。修正:圖幅世界中心 = `TransformPoint(positionOffset + 平均 centroid)`(舊版漏加 `positionOffset` → 所有圖幅映射至原點,小地圖失效)。
+- 動機:玩家出生時 `startYaw=0` → 面向南方(+Z=南);面南時螢幕左=東、右=西,與北朝上地圖的「右=東」直覺相反。L 鍵的羅盤方位 + M 鍵的持續北朝上小地圖可即時確認面向方向與各圖幅實際地理位置及連接關係。
+
+**D. README 新增 SonarCloud 品質閘門徽章**
+
+- 於 `README.md` 最上方新增 `[![Quality gate](…)](…)` 徽章,連至 SonarCloud 專案摘要頁。
+
 ## [v2.6.4] - 2026-11-27
 
 ### 修正(建置腳本覆寫地面設定 → IPA 仍啟用 GroundFill)

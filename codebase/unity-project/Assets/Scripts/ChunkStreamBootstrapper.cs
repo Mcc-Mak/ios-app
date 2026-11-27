@@ -40,6 +40,7 @@ namespace HKGrid.Streaming
 
         private ChunkStreamer _streamer;
         private Transform _worldRoot;
+        private ChunkManifest _manifest;   // v2.6.5: L 鍵小地圖用(各圖幅中心計算)
         private bool _ready;
         // v2.2.12: 逐塊地面填補(chunk id → fill GameObject)
         private readonly Dictionary<string, GameObject> _chunkFills = new Dictionary<string, GameObject>();
@@ -145,6 +146,7 @@ namespace HKGrid.Streaming
                     yield break;
                 }
                 var manifest = JsonUtility.FromJson<ChunkManifest>(req.downloadHandler.text);
+                _manifest = manifest;   // v2.6.5: 供 L 鍵小地圖計算各圖幅中心
                 Debug.Log($"[Bootstrapper] manifest 載入: {manifest.source}, {manifest.chunkCount} 分塊, " +
                           $"{manifest.totalBytes / 1e6f:F2} MB, {manifest.totalTriangles:N0} 三角面");
                 Debug.Log($"[Bootstrapper] 授權: {manifest.attribution}");
@@ -163,6 +165,38 @@ namespace HKGrid.Streaming
                 }
 
                 _streamer = new ChunkStreamer(manifest, config, _worldRoot, camera);
+
+                // v2.6.5: 注入小地圖圖幅資料(各圖幅世界中心 + 尺寸)供 DebugOverlay 繪製。
+                // worldRoot 已由 ChunkStreamer 建構子套用 -90° X 旋轉,TransformPoint 正確。
+                // 每圖幅中心 = positionOffset(圖幅原點偏移);尺寸由該圖幅所有分塊的世界 bbox 推導。
+                if (_dbg != null)
+                {
+                    var mmCodes = new System.Collections.Generic.List<string>();
+                    var mmCenters = new System.Collections.Generic.List<Vector3>();
+                    var mmSizes = new System.Collections.Generic.List<Vector2>();
+                    var seenTiles = new System.Collections.Generic.HashSet<string>();
+                    foreach (var c in manifest.chunks)
+                    {
+                        if (string.IsNullOrEmpty(c.tile) || !seenTiles.Add(c.tile)) continue;
+                        float minX = float.MaxValue, maxX = float.MinValue;
+                        float minZ = float.MaxValue, maxZ = float.MinValue;
+                        foreach (var cc in manifest.chunks)
+                        {
+                            if (cc.tile != c.tile) continue;
+                            Vector3 localPos = cc.PositionOffsetVector + cc.CentroidVector;
+                            Vector3 worldPos = _worldRoot.TransformPoint(localPos);
+                            if (worldPos.x < minX) minX = worldPos.x;
+                            if (worldPos.x > maxX) maxX = worldPos.x;
+                            if (worldPos.z < minZ) minZ = worldPos.z;
+                            if (worldPos.z > maxZ) maxZ = worldPos.z;
+                        }
+                        mmCodes.Add(c.tile);
+                        mmCenters.Add(new Vector3((minX + maxX) * 0.5f, 0f, (minZ + maxZ) * 0.5f));
+                        mmSizes.Add(new Vector2(maxX - minX, maxZ - minZ));
+                    }
+                    _dbg.SetMiniMapTiles(mmCodes, mmCenters, mmSizes);
+                    Debug.Log($"[Bootstrapper] 小地圖圖幅資料已注入: {mmCodes.Count} 圖幅");
+                }
 
                 // v2.2.12: 訂閱分塊載入/卸載事件,逐塊建立地面填補(取樣真實網格頂點)
                 _streamer.OnChunkLoaded += OnChunkLoaded;
@@ -524,6 +558,50 @@ namespace HKGrid.Streaming
             if (!_ready) return;
 
             _streamer.Tick();
+
+            // v2.6.5: L 鍵 — 主控台印出各圖幅相對玩家的距離與方向(小地圖顯示由 DebugOverlay 自行處理)。
+            // 修正:圖幅世界中心 = TransformPoint(positionOffset + 平均 centroid);舊版漏加 positionOffset
+            //       → 所有圖幅都映射至原點,小地圖無法呈現相對位置。
+            if (_manifest != null && Input.GetKeyDown(KeyCode.L))
+            {
+                Vector3 player = camera != null ? camera.transform.position : transform.position;
+                float bearing = 0f;
+                if (camera != null)
+                {
+                    Vector3 f = camera.transform.forward; f.y = 0f;
+                    if (f.sqrMagnitude > 0.0001f)
+                    {
+                        bearing = Mathf.Atan2(f.x, -f.z) * Mathf.Rad2Deg;
+                        if (bearing < 0f) bearing += 360f;
+                    }
+                }
+                var sb = new System.Text.StringBuilder();
+                sb.Append("[Bootstrapper] L 鍵圖幅診斷 — 玩家世界座標: (X=");
+                sb.Append(player.x.ToString("F1")); sb.Append(", Z="); sb.Append(player.z.ToString("F1"));
+                sb.Append(") 面向方位="); sb.Append(bearing.ToString("F0")); sb.Append("°\n");
+                var seen = new System.Collections.Generic.HashSet<string>();
+                foreach (var c in _manifest.chunks)
+                {
+                    if (string.IsNullOrEmpty(c.tile) || !seen.Add(c.tile)) continue;
+                    Vector3 sum = Vector3.zero; int n = 0;
+                    foreach (var cc in _manifest.chunks)
+                    {
+                        if (cc.tile == c.tile) { sum += cc.CentroidVector; n++; }
+                    }
+                    Vector3 localCenter = (n > 0 ? sum / n : Vector3.zero) + c.PositionOffsetVector;
+                    Vector3 worldCenter = _worldRoot != null ? _worldRoot.TransformPoint(localCenter) : localCenter;
+                    float dx = worldCenter.x - player.x;   // +東 -西
+                    float dz = worldCenter.z - player.z;   // +南 -北
+                    float dist = Mathf.Sqrt(dx * dx + dz * dz);
+                    string ew = Mathf.Abs(dx) < 1f ? "同東西" : (dx > 0 ? "東" : "西");
+                    string ns = Mathf.Abs(dz) < 1f ? "同南北" : (dz > 0 ? "南" : "北");
+                    sb.Append("  "); sb.Append(c.tile);
+                    sb.Append(" 中心世界座標=(X="); sb.Append(worldCenter.x.ToString("F1"));
+                    sb.Append(", Z="); sb.Append(worldCenter.z.ToString("F1")); sb.Append(") → 距玩家 ");
+                    sb.Append(dist.ToString("F0")); sb.Append("m, 偏"); sb.Append(ns); sb.Append(ew); sb.Append("\n");
+                }
+                Debug.Log(sb.ToString());
+            }
 
             // v2.4.0: 預載入完成判定 — 所有分塊載入完成後才顯示場景
             if (_preloading)

@@ -117,6 +117,7 @@ namespace HKGrid.Editor
             player.defaultFov = 60f;          // v2.2.8: 恢復原始
             player.moveSpeed = 8.75f;         // v2.2.6: 1.75x(使用者要求保留)
             player.lookJoystickSpeed = 120f;  // v2.6.0: 右側視角搖桿靈敏度
+            player.jumpCooldown = 0f;         // v2.6.7: 停用跳躍冷卻(著地即可再跳)
             EditorUtility.SetDirty(player);
 
             // 6b-2. v2.2.15: 掛上 DebugOverlay(iOS 螢幕診斷;Editor 中也可顯示)
@@ -126,6 +127,8 @@ namespace HKGrid.Editor
                 dbg = cam.gameObject.AddComponent<HKGrid.Debugging.DebugOverlay>();
                 Debug.Log("[SetupScene] 掛上 DebugOverlay(iOS 螢幕診斷)");
             }
+            // v2.6.5: 預設隱藏診斷覆蓋層(畫面乾淨);齒輪按鈕仍永遠顯示可供開啟。
+            dbg.show = false;
             EditorUtility.SetDirty(dbg);
 
             // 6c. 強制更新 Config 值(確保舊資產也套用新參數)。
@@ -145,7 +148,8 @@ namespace HKGrid.Editor
             config.groundFillBelowOffset = 0.05f;  // v2.2.14: 0.5→0.05(供未來重新啟用 GroundFill 時使用)
             config.groundFillSampleResolution = 8;  // v2.2.12: 8×8 取樣(供未來重新啟用時使用)
             // v2.6.3: 確保預載入 + spawn 圖幅設定(避免舊 .asset 殘留空值)
-            config.spawnTileCode = "6-SE-17C";
+            // v2.6.7: spawn 點改為 6-SE-21A(五圖幅最西側,玩家出生於 21A,可向東進入 21B→22A)
+            config.spawnTileCode = "6-SE-21A";
             config.preloadAllChunks = true;
             config.keepAllChunksAfterPreload = true;
             config.preloadDeferBudget = 0.5f;
