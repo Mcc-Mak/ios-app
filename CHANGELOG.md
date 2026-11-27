@@ -9,6 +9,31 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/)。
 
+## [v2.6.4] - 2026-11-27
+
+### 修正(建置腳本覆寫地面設定 → IPA 仍啟用 GroundFill)
+
+**根因:`SetupScene.cs` 硬編 `groundFillEnabled=true`,每次匯出 Xcode 專案時覆寫磁碟 `.asset`**
+
+- v2.6.3 將 `ChunkStreamConfig.asset` 的 `groundFillEnabled` 改為 `0`(停用 GroundFill),但 `SetupScene.Build()`(由 `BuildIOS.Export()` 於每次匯出呼叫)第 139 行硬編 `config.groundFillEnabled = true`,經 `EditorUtility.SetDirty` + `AssetDatabase.SaveAssets` 寫回磁碟 → 覆寫回 `1`。
+- 結果:v2.6.3 IPA 仍啟用 GroundFill(可見橄欖綠偽地面 + 建物頂點污染 + 邊界空隙),與磁碟 `.asset` 設定不符。使用者報告「Unity 和 IPA 未遵循磁碟設定」。
+- **此為 v2.6.3 IPA 地面問題與『17C 重複出現』視覺瑕疵的根因**:GroundFill 為每個分塊建立可見橄欖綠平面,17C 的 20 個分塊 = 20 個 GroundFill 平面 + 20 個真實網格,視覺上如同「17C 重複出現(扁平綠色鏡像)」。
+
+**修正內容**
+
+1. `SetupScene.cs` 第 139 行:`groundFillEnabled = true` → `false`。
+2. `SetupScene.cs` 新增強制設定 `spawnTileCode="6-SE-17C"`、`preloadAllChunks=true`、`keepAllChunksAfterPreload=true`、`preloadDeferBudget=0.5`(建置權威來源,避免舊 `.asset` 殘留空值)。
+3. `SetupScene.cs` 新增 `Debug.Log` 記錄強制設定的 config 值(匯出日誌可驗證)。
+4. `ChunkStreamBootstrapper.Awake()` 新增啟動時 `Debug.Log` 記錄套用的 config 值(裝置日誌可驗證 IPA 是否套用正確設定)。
+
+**5 圖幅對齊調查結論(資料已驗證正確)**
+
+- manifest 100 分塊、每圖幅 20 分塊、無重複 ID、無重複 positionOffset。
+- 17C 恰 20 分塊,全部 positionOffset=(750, 2.4, 8.5),無重複。
+- 旋轉比對:22A/21A/21B 的網格資料與 17C 在任何 180° 旋轉下比對,吻合率 <0.1%(非旋轉複製)。
+- 網格資料完全不同(17C: 234 萬頂點/274m 高程範圍;22A: 78 萬頂點/204m)。
+- 結論:「17C 重複出現」為 GroundFill 可見平面所致(本版本修正),非資料重複或旋轉錯誤。
+
 ## [v2.6.3] - 2026-11-26
 
 ### 變更(真實網格碰撞器取代 GroundFill + 修正 SonarCloud S2083/S3776)

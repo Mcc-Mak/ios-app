@@ -64,6 +64,19 @@ namespace HKGrid.Streaming
             }
             if (camera == null) camera = GetComponent<Camera>();
 
+            // v2.6.3: 啟動時記錄關鍵設定值,供裝置日誌驗證 IPA 是否套用正確設定。
+            // (歷史問題:SetupScene.cs 曾硬編 groundFillEnabled=true 覆寫磁碟 .asset,
+            //  導致 IPA 仍啟用 GroundFill。此記錄讓問題可從裝置端察覺。)
+            Debug.Log($"[Bootstrapper] ChunkStreamConfig 套用值:" +
+                      $" addChunkColliders={config.addChunkColliders}" +
+                      $", groundFillEnabled={config.groundFillEnabled}" +
+                      $", forceDoubleSided={config.forceDoubleSided}" +
+                      $", spawnTileCode={config.spawnTileCode}" +
+                      $", preloadAllChunks={config.preloadAllChunks}" +
+                      $", keepAllChunksAfterPreload={config.keepAllChunksAfterPreload}" +
+                      $", loadRadius={config.loadRadius}" +
+                      $", applyZupToYupRotation={config.applyZupToYupRotation}");
+
             // v2.2.15: 取得 DebugOverlay(若有)用於 iOS 螢幕診斷
             _dbg = GetComponent<HKGrid.Debugging.DebugOverlay>();
 

@@ -128,18 +128,31 @@ namespace HKGrid.Editor
             }
             EditorUtility.SetDirty(dbg);
 
-            // 6c. 強制更新 Config 值(確保舊資產也套用新參數)
+            // 6c. 強制更新 Config 值(確保舊資產也套用新參數)。
+            // ⚠ 此處為建置權威來源——.asset 磁碟編輯會被此處覆寫。
+            // v2.6.3: groundFillEnabled 改為 false(真實網格碰撞器取代 GroundFill)。
+            //   舊版 v2.2.9 在此硬編 groundFillEnabled=true,導致每次匯出 Xcode 專案時
+            //   覆寫 .asset 的 false 回 true → IPA 仍啟用 GroundFill(可見橄欖綠偽地面、
+            //   建物頂點污染、邊界空隙)。此為 v2.6.3 IPA「未遵循磁碟設定」的根因。
             // v2.2.3: loadRadius 1000→400、unloadRadius 1350→550(限制可視範圍,降低 iPhone 負載)
             config.loadRadius = 400f;
             config.unloadRadius = 550f;
             config.cameraFarClip = 450f;
             config.gltfFrameBudget = 0.15f;
-            config.addChunkColliders = true;
-            config.forceDoubleSided = true;  // v2.2.5: 雙面渲染(Cull Off)
-            config.groundFillEnabled = true;  // v2.2.9: 人工地面填補
-            config.groundFillBelowOffset = 0.05f;  // v2.2.14: 0.5→0.05(填補面齊平真實地面,防跌落困住)
-            config.groundFillSampleResolution = 8;  // v2.2.12: 8×8 取樣
+            config.addChunkColliders = true;   // v2.6.3: 真實攝影測量網格 MeshCollider(地面跟隨射線命中真實地形)
+            config.forceDoubleSided = true;    // v2.2.5: 雙面渲染(Cull Off)
+            config.groundFillEnabled = false;  // v2.6.3: 停用 GroundFill(偽地面三 bug:邊界空隙/建物污染/可見平面)
+            config.groundFillBelowOffset = 0.05f;  // v2.2.14: 0.5→0.05(供未來重新啟用 GroundFill 時使用)
+            config.groundFillSampleResolution = 8;  // v2.2.12: 8×8 取樣(供未來重新啟用時使用)
+            // v2.6.3: 確保預載入 + spawn 圖幅設定(避免舊 .asset 殘留空值)
+            config.spawnTileCode = "6-SE-17C";
+            config.preloadAllChunks = true;
+            config.keepAllChunksAfterPreload = true;
+            config.preloadDeferBudget = 0.5f;
             EditorUtility.SetDirty(config);
+            Debug.Log($"[SetupScene] ChunkStreamConfig 強制設定: addChunkColliders={config.addChunkColliders}, " +
+                      $"groundFillEnabled={config.groundFillEnabled}, spawnTileCode={config.spawnTileCode}, " +
+                      $"preloadAllChunks={config.preloadAllChunks}, keepAllChunksAfterPreload={config.keepAllChunksAfterPreload}");
 
             // 7. 方向光(若場景內無,讓網格有基本照明)
             Light dir = Object.FindObjectOfType<Light>();
